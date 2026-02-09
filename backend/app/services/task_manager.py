@@ -19,9 +19,9 @@ class TaskManager:
         # Ensure temp dir exists
         Path(self.config.storage.temp_dir).mkdir(parents=True, exist_ok=True)
 
-    def create_task(self, filename: str, user_id: Optional[int] = None) -> Task:
+    def create_task(self, filename: str, user_id: Optional[int] = None, mode: str = "translate") -> Task:
         task_id = uuid.uuid4().hex
-        task = Task(task_id=task_id, filename=filename, user_id=user_id)
+        task = Task(task_id=task_id, filename=filename, user_id=user_id, mode=mode)
         with Session(engine) as session:
             session.add(task)
             session.commit()

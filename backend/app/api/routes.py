@@ -4,7 +4,7 @@ import asyncio
 from typing import Any, Dict
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Depends
 from fastapi.responses import HTMLResponse, FileResponse
 
 from ..models.task import TaskStatus
@@ -20,25 +20,28 @@ def create_router(task_manager: TaskManager, processor: DocumentProcessor) -> AP
     @router.post("/upload")
     async def upload_pdf(
         file: UploadFile = File(...),
+        mode: str = Form("translate"),
         user: User = Depends(get_current_user)
     ) -> Dict[str, Any]:
+        if mode not in ("translate", "simplify"):
+            raise HTTPException(status_code=400, detail="mode must be 'translate' or 'simplify'")
         if file.content_type not in {"application/pdf", "application/octet-stream"}:
             raise HTTPException(status_code=400, detail="仅支持PDF文件")
         file_bytes = await file.read()
         if not file_bytes:
             raise HTTPException(status_code=400, detail="文件内容为空")
 
-        task = task_manager.create_task(file.filename or "document.pdf", user_id=user.id)
-        
+        task = task_manager.create_task(file.filename or "document.pdf", user_id=user.id, mode=mode)
+
         # Save original file
         original_path = Path(task_manager.config.storage.temp_dir) / f"{task.task_id}_original.pdf"
         with open(original_path, "wb") as f:
             f.write(file_bytes)
-        
+
         # Update task with original path
         task_manager.update_original_path(task.task_id, str(original_path))
 
-        asyncio.create_task(processor.process(task.task_id, file_bytes, task.filename))
+        asyncio.create_task(processor.process(task.task_id, file_bytes, task.filename, mode=mode))
 
         return {"task_id": task.task_id}
 
@@ -52,7 +55,8 @@ def create_router(task_manager: TaskManager, processor: DocumentProcessor) -> AP
                 "status": t.status,
                 "created_at": t.created_at,
                 "percent": t.percent,
-                "message": t.message
+                "message": t.message,
+                "mode": t.mode
             }
             for t in tasks
         ]

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Upload, FileText, ArrowRight, Clock, CheckCircle, AlertCircle } from "lucide-react";
+import { Upload, FileText, ArrowRight, Clock, CheckCircle, AlertCircle, Languages, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Task {
@@ -16,11 +16,12 @@ interface Task {
     created_at: string;
     percent?: number;
     message?: string;
+    mode?: "translate" | "simplify";
 }
 
 const Dashboard = () => {
     const [tasks, setTasks] = useState<Task[]>([]);
-    // Removed global uploading state to allow concurrent uploads
+    const [mode, setMode] = useState<"translate" | "simplify">("translate");
     const navigate = useNavigate();
 
     const fetchTasks = async () => {
@@ -52,6 +53,7 @@ const Dashboard = () => {
 
         const formData = new FormData();
         formData.append("file", file);
+        formData.append("mode", mode);
 
         // Optimistically add task or just let polling catch it?
         // For better UX, we could add a temporary "uploading" item, but simply unblocking is the first step.
@@ -111,7 +113,35 @@ const Dashboard = () => {
                         complex vocabulary — while preserving layout, images, and formulas.
                     </p>
 
-                    <div className="flex justify-center pt-4">
+                    {/* Mode Selector */}
+                    <div className="flex justify-center gap-3">
+                        <button
+                            onClick={() => setMode("translate")}
+                            className={cn(
+                                "flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium transition-all",
+                                mode === "translate"
+                                    ? "bg-primary text-primary-foreground shadow-md"
+                                    : "bg-white/80 text-gray-600 border border-gray-200 hover:bg-gray-50"
+                            )}
+                        >
+                            <Languages className="h-4 w-4" />
+                            Translate to Chinese
+                        </button>
+                        <button
+                            onClick={() => setMode("simplify")}
+                            className={cn(
+                                "flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium transition-all",
+                                mode === "simplify"
+                                    ? "bg-primary text-primary-foreground shadow-md"
+                                    : "bg-white/80 text-gray-600 border border-gray-200 hover:bg-gray-50"
+                            )}
+                        >
+                            <BookOpen className="h-4 w-4" />
+                            Simplify English
+                        </button>
+                    </div>
+
+                    <div className="flex justify-center pt-2">
                         <Label
                             htmlFor="file-upload"
                             className={cn(
@@ -155,8 +185,11 @@ const Dashboard = () => {
                                             <CardTitle className="text-base font-medium leading-none line-clamp-1" title={task.filename}>
                                                 {task.filename}
                                             </CardTitle>
-                                            <CardDescription className="text-xs">
+                                            <CardDescription className="text-xs flex items-center gap-1.5">
                                                 {new Date(task.created_at).toLocaleDateString()}
+                                                <span className="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">
+                                                    {task.mode === "simplify" ? "Simplify" : "Translate"}
+                                                </span>
                                             </CardDescription>
                                         </div>
                                     </div>
