@@ -11,6 +11,17 @@ EasyPaper 是一个可本地部署的 Web 应用，帮助你更轻松地阅读�
 
 [English](README.md)
 
+## 效果展示
+
+### 翻译为中文
+![翻译为中文](imgs/img-0.png)
+
+### 简化英文
+![简化英文](imgs/img-1.png)
+
+### 保留排版技术
+![排版分析](imgs/test.png)
+
 ## 功能特点
 
 - PDF 输入，PDF 输出 — 保留原始排版、图片和数学公式

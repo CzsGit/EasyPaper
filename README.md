@@ -11,6 +11,17 @@ Upload a PDF, get back a clean, readable version — with all figures, equations
 
 [中文说明](README_zh.md)
 
+## Screenshots
+
+### Translate to Chinese
+![Translate to Chinese](imgs/img-0.png)
+
+### Simplify English
+![Simplify English](imgs/img-1.png)
+
+### Layout-Preserving Technology
+![Layout analysis](imgs/test.png)
+
 ## Features
 
 - PDF-in, PDF-out — preserves original layout, images, and mathematical formulas
