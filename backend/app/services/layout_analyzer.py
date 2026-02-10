@@ -1,15 +1,14 @@
-import logging
-import os
-from typing import List
-from PIL import Image
 import io
-import numpy as np
+import logging
+
+from PIL import Image
 
 # Surya imports
 from surya.layout import batch_layout_detection
 from surya.model.detection.segformer import load_model, load_processor
 
 logger = logging.getLogger(__name__)
+
 
 class LayoutAnalyzer:
     def __init__(self):
@@ -29,7 +28,7 @@ class LayoutAnalyzer:
         except Exception as e:
             logger.error(f"Failed to load Surya model: {e}")
 
-    def analyze(self, image_bytes: bytes) -> List[dict]:
+    def analyze(self, image_bytes: bytes) -> list[dict]:
         """
         Analyze PDF page image and return bounding boxes.
         """
@@ -49,30 +48,33 @@ class LayoutAnalyzer:
         try:
             # batch_layout_detection expects a list of images
             results = batch_layout_detection([image], self.model, self.processor)
-            result = results[0] # We only sent one image
+            result = results[0]  # We only sent one image
         except Exception as e:
             logger.error(f"Surya inference failed: {e}")
             return []
-        
+
         output = []
         # Surya result.bboxes is a list of LayoutBox objects
         # LayoutBox has: bbox, label, confidence (maybe)
-        # Check Surya output format: 
+        # Check Surya output format:
         # result is a LayoutResult object, containing .bboxes (list of LayoutBox)
         # LayoutBox attributes: bbox (list [x1, y1, x2, y2]), label (str), polygon (list)
-        
+
         for box in result.bboxes:
             x1, y1, x2, y2 = box.bbox
             label = box.label
-            
+
             # Surya labels: Caption, Footnote, Formula, List-item, Page-footer, Page-header, Picture, Section-header, Table, Text, Title
             # Map to our needs
-            if label == "Picture": label = "Figure"
-            
-            output.append({
-                "bbox": [float(x1), float(y1), float(x2), float(y2)],
-                "score": 1.0, # Surya doesn't always return confidence per box in simple API, assume high
-                "label": label
-            })
-            
+            if label == "Picture":
+                label = "Figure"
+
+            output.append(
+                {
+                    "bbox": [float(x1), float(y1), float(x2), float(y2)],
+                    "score": 1.0,  # Surya doesn't always return confidence per box in simple API, assume high
+                    "label": label,
+                }
+            )
+
         return output

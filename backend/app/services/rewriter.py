@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import List, Sequence
+from collections.abc import Sequence
 
 import httpx
 
@@ -35,13 +35,10 @@ class LLMRewriter:
     def __init__(self, api_key: str, model: str, base_url: str = "https://api.zhizengzeng.com/v1") -> None:
         self.api_key = api_key
         self.model = model
-        self._client = httpx.AsyncClient(
-            base_url=base_url,
-            timeout=httpx.Timeout(120.0, connect=10.0)
-        )
+        self._client = httpx.AsyncClient(base_url=base_url, timeout=httpx.Timeout(120.0, connect=10.0))
 
-    async def rewrite_blocks(self, blocks: Sequence[str]) -> List[str]:
-        results: List[str] = []
+    async def rewrite_blocks(self, blocks: Sequence[str]) -> list[str]:
+        results: list[str] = []
         for text in blocks:
             simplified = await self.rewrite(text)
             results.append(simplified)
@@ -50,11 +47,11 @@ class LLMRewriter:
     async def rewrite(self, text: str) -> str:
         if not text.strip():
             return text
-            
+
         # 简单的重试逻辑
         max_retries = 3
         base_delay = 2
-        
+
         for attempt in range(max_retries):
             try:
                 return await self._do_rewrite(text)
@@ -62,8 +59,8 @@ class LLMRewriter:
                 if attempt == max_retries - 1:
                     logger.error("LLM重写失败 (最终尝试): %s", exc)
                     return text
-                
-                delay = base_delay * (2 ** attempt)
+
+                delay = base_delay * (2**attempt)
                 logger.warning("LLM重写出错: %s, %d秒后重试...", exc, delay)
                 await asyncio.sleep(delay)
         return text
@@ -97,7 +94,7 @@ class LLMRewriter:
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def __aenter__(self) -> "LLMRewriter":
+    async def __aenter__(self) -> LLMRewriter:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001

@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 from sqlmodel import Session, select
 
@@ -19,7 +18,7 @@ class TaskManager:
         # Ensure temp dir exists
         Path(self.config.storage.temp_dir).mkdir(parents=True, exist_ok=True)
 
-    def create_task(self, filename: str, user_id: Optional[int] = None, mode: str = "translate") -> Task:
+    def create_task(self, filename: str, user_id: int | None = None, mode: str = "translate") -> Task:
         task_id = uuid.uuid4().hex
         task = Task(task_id=task_id, filename=filename, user_id=user_id, mode=mode)
         with Session(engine) as session:
@@ -28,11 +27,11 @@ class TaskManager:
             session.refresh(task)
         return task
 
-    def get_task(self, task_id: str) -> Optional[Task]:
+    def get_task(self, task_id: str) -> Task | None:
         with Session(engine) as session:
             return session.get(Task, task_id)
 
-    def list_tasks(self, user_id: Optional[int] = None, limit: int = 50) -> list[Task]:
+    def list_tasks(self, user_id: int | None = None, limit: int = 50) -> list[Task]:
         with Session(engine) as session:
             statement = select(Task)
             if user_id:
@@ -40,7 +39,9 @@ class TaskManager:
             statement = statement.order_by(Task.created_at.desc()).limit(limit)
             return session.exec(statement).all()
 
-    def update_progress(self, task_id: str, status: TaskStatus, percent: int, message: str, error: Optional[str] = None) -> None:
+    def update_progress(
+        self, task_id: str, status: TaskStatus, percent: int, message: str, error: str | None = None
+    ) -> None:
         with Session(engine) as session:
             task = session.get(Task, task_id)
             if not task:
@@ -66,18 +67,18 @@ class TaskManager:
             task = session.get(Task, task_id)
             if not task:
                 return
-            
+
             # Save PDF to disk
             if result.pdf_bytes:
                 file_path = Path(self.config.storage.temp_dir) / f"{task_id}.pdf"
                 file_path.write_bytes(result.pdf_bytes)
                 task.result_pdf_path = str(file_path)
-            
+
             task.result_preview_html = result.preview_html
             task.status = TaskStatus.COMPLETED
             task.percent = 100
             task.message = "生成完成"
-            
+
             session.add(task)
             session.commit()
 
@@ -92,19 +93,47 @@ class TaskManager:
             session.add(task)
             session.commit()
 
+    def delete_task(self, task_id: str) -> None:
+        with Session(engine) as session:
+            task = session.get(Task, task_id)
+            if not task:
+                return
+            if task.result_pdf_path:
+                try:
+                    Path(task.result_pdf_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            if task.original_pdf_path:
+                try:
+                    Path(task.original_pdf_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            session.delete(task)
+            session.commit()
+
     def cleanup(self) -> None:
         cutoff = datetime.utcnow() - self._ttl
+        _terminal = [TaskStatus.COMPLETED, TaskStatus.ERROR]
         with Session(engine) as session:
-            statement = select(Task).where(Task.created_at < cutoff)
+            statement = select(Task).where(
+                Task.created_at < cutoff,
+                Task.status.in_(_terminal),
+            )
             expired_tasks = session.exec(statement).all()
-            
+
             for task in expired_tasks:
-                # Delete file if exists
+                # Delete result PDF if exists
                 if task.result_pdf_path:
                     try:
                         Path(task.result_pdf_path).unlink(missing_ok=True)
                     except Exception:
                         pass
+                # Delete original PDF if exists
+                if task.original_pdf_path:
+                    try:
+                        Path(task.original_pdf_path).unlink(missing_ok=True)
+                    except Exception:
+                        pass
                 session.delete(task)
-            
+
             session.commit()

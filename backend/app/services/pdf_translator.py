@@ -2,13 +2,12 @@
 PDF 翻译服务 - 使用 PDFMathTranslate (pdf2zh) 进行学术论文翻译
 保留公式、图片、布局
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import tempfile
-from pathlib import Path
-from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +39,8 @@ class PDFTranslator:
     def translate_pdf(
         self,
         input_path: str,
-        output_dir: Optional[str] = None,
-    ) -> Tuple[Optional[str], Optional[str]]:
+        output_dir: str | None = None,
+    ) -> tuple[str | None, str | None]:
         """
         翻译 PDF 文件
 
@@ -89,7 +88,7 @@ class PDFTranslator:
     def translate_pdf_stream(
         self,
         pdf_bytes: bytes,
-    ) -> Tuple[Optional[bytes], Optional[bytes]]:
+    ) -> tuple[bytes | None, bytes | None]:
         """
         翻译 PDF 字节流
 

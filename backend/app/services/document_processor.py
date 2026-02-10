@@ -1,6 +1,7 @@
 """
 文档处理器 - 使用 PDFMathTranslate (pdf2zh) 进行学术论文翻译/简化
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -109,13 +110,9 @@ class DocumentProcessor:
 
             # 更新进度
             if mode == "simplify":
-                self.task_manager.update_progress(
-                    task_id, TaskStatus.REWRITING, 30, "正在使用 AI 简化..."
-                )
+                self.task_manager.update_progress(task_id, TaskStatus.REWRITING, 30, "正在使用 AI 简化...")
             else:
-                self.task_manager.update_progress(
-                    task_id, TaskStatus.REWRITING, 30, "正在使用 AI 翻译..."
-                )
+                self.task_manager.update_progress(task_id, TaskStatus.REWRITING, 30, "正在使用 AI 翻译...")
 
             try:
                 # 调用 pdf2zh
@@ -138,9 +135,7 @@ class DocumentProcessor:
                 file_mono, file_dual = results[0]
 
                 # 更新进度
-                self.task_manager.update_progress(
-                    task_id, TaskStatus.RENDERING, 80, "正在生成 PDF..."
-                )
+                self.task_manager.update_progress(task_id, TaskStatus.RENDERING, 80, "正在生成 PDF...")
 
                 # 优先使用双语版本，如果没有则使用单语版本
                 output_file = file_dual if file_dual else file_mono

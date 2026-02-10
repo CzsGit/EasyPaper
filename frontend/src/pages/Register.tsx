@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
-import axios from "axios";
+import { toast } from "sonner";
+import api from "@/lib/api";
 
 export default function Register() {
     const [email, setEmail] = useState("");
@@ -17,12 +18,12 @@ export default function Register() {
         e.preventDefault();
         setLoading(true);
         try {
-            await axios.post("/api/auth/register", { email, password });
-            alert("Registration successful! Please login.");
+            await api.post("/api/auth/register", { email, password });
+            toast.success("Registration successful! Please login.");
             navigate("/login");
-        } catch (error) {
-            console.error("Registration failed", error);
-            alert("Registration failed. Please try again.");
+        } catch (error: any) {
+            const msg = error.response?.data?.detail || "Registration failed. Please try again.";
+            toast.error(msg);
         } finally {
             setLoading(false);
         }

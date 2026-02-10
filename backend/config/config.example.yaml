@@ -5,10 +5,19 @@ llm:
   judge_model: "gemini-2.5-flash"
 processing:
   max_pages: 100
+  max_upload_mb: 50
+  max_concurrent: 3
   preview_html: true
+security:
+  secret_key: "CHANGE_THIS_TO_A_SECURE_SECRET_KEY"
+  cors_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
 storage:
   cleanup_minutes: 30
   temp_dir: "./backend/tmp"
+database:
+  url: "sqlite:///./backend/data/app.db"
 logging:
   level: "INFO"
   file: "./backend/logs/app.log"

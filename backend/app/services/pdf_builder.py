@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-from typing import List
 
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
@@ -28,31 +27,48 @@ class PDFBuilder:
         self.chinese_font_bold = "Helvetica-Bold"
         self.chinese_font_italic = "Helvetica-Oblique"
 
-        # 注册中文字体 (优先使用苹方，回退到华文黑体)
-        try:
-            # macOS 苹方字体
-            pdfmetrics.registerFont(TTFont('PingFang', '/System/Library/Fonts/PingFang.ttc', subfontIndex=0))
-            pdfmetrics.registerFont(TTFont('PingFang-Bold', '/System/Library/Fonts/PingFang.ttc', subfontIndex=1))
-            self.has_chinese_font = True
-            self.chinese_font = 'PingFang'
-            self.chinese_font_bold = 'PingFang-Bold'
-            self.chinese_font_italic = 'PingFang'  # 苹方没有斜体，用常规体
-        except Exception:
-            # 回退到华文黑体
+        # 注册中文字体 (按优先级尝试: macOS苹方 → macOS华文黑体 → Linux Noto CJK)
+        _font_candidates = [
+            (
+                "PingFang",
+                "/System/Library/Fonts/PingFang.ttc",
+                0,
+                "PingFang-Bold",
+                "/System/Library/Fonts/PingFang.ttc",
+                1,
+            ),
+            ("STHeiti", "/System/Library/Fonts/STHeiti Light.ttc", 0, None, None, None),
+            (
+                "NotoSansCJK",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                0,
+                "NotoSansCJK-Bold",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+                0,
+            ),
+        ]
+        for name, path, idx, bold_name, bold_path, bold_idx in _font_candidates:
             try:
-                pdfmetrics.registerFont(TTFont('STHeiti', '/System/Library/Fonts/STHeiti Light.ttc', subfontIndex=0))
+                pdfmetrics.registerFont(TTFont(name, path, subfontIndex=idx))
                 self.has_chinese_font = True
-                self.chinese_font = 'STHeiti'
-                self.chinese_font_bold = 'STHeiti'
-                self.chinese_font_italic = 'STHeiti'
+                self.chinese_font = name
+                if bold_name and bold_path:
+                    try:
+                        pdfmetrics.registerFont(TTFont(bold_name, bold_path, subfontIndex=bold_idx))
+                        self.chinese_font_bold = bold_name
+                    except Exception:
+                        self.chinese_font_bold = name
+                else:
+                    self.chinese_font_bold = name
+                self.chinese_font_italic = name
+                break
             except Exception:
-                # 最终回退到 Helvetica
-                self.has_chinese_font = False
+                continue
 
     def build(self, doc_layout: dict) -> bytes:
         buffer = io.BytesIO()
         pdf = canvas.Canvas(buffer)
-        
+
         pages = doc_layout.get("pages", [])
         print(f"DEBUG: Builder received {len(pages)} pages")
 
@@ -67,7 +83,7 @@ class PDFBuilder:
         width = page.get("width")
         height = page.get("height")
         pdf.setPageSize((width, height))
-        
+
         # 1. 绘制全页背景 (Background Preservation)
         bg_image = next((img for img in page.get("images", []) if img.get("type") == "background"), None)
         if bg_image:
@@ -77,7 +93,7 @@ class PDFBuilder:
                 pdf.drawImage(img_reader, 0, 0, width=width, height=height)
             except Exception as e:
                 print(f"Error drawing background: {e}")
-                
+
         # 1.1 添加页面书签
         page_index = page.get("page_index", 0)
         pdf.bookmarkPage(f"page_{page_index}")
@@ -101,26 +117,28 @@ class PDFBuilder:
 
             rect = link.get("from")
             kind = link.get("kind")
-            
+
             # Flip Y coordinate
             # rect is [x0, y0, x1, y1] (Top-Left origin)
             # ReportLab needs [x0, y0, x1, y1] (Bottom-Left origin)
             # rl_y0 = height - rect[3]
             # rl_y1 = height - rect[1]
             # But pdf.linkURL expects rect as [x0, y0, x1, y1] in its coord system.
-            
+
             rl_rect = [rect[0], height - rect[3], rect[2], height - rect[1]]
-            
-            if kind == 2: # URI
+
+            if kind == 2:  # URI
                 uri = link.get("uri")
                 if uri:
                     pdf.linkURL(uri, rl_rect, relative=0)
-            elif kind == 1 or kind == 4: # GoTo / Named (Internal)
+            elif kind == 1 or kind == 4:  # GoTo / Named (Internal)
                 target_page = link.get("page")
                 if target_page is not None:
                     pdf.linkRect("", f"page_{target_page}", rl_rect, relative=0)
 
-    def _render_text_block(self, pdf: canvas.Canvas, block: dict, page_height: float, protected_zones: list = None) -> None:
+    def _render_text_block(
+        self, pdf: canvas.Canvas, block: dict, page_height: float, protected_zones: list = None
+    ) -> None:
         # Skip rotated blocks (PRESERVE strategy)
         if block.get("rotation", 0) != 0:
             return
@@ -187,21 +205,13 @@ class PDFBuilder:
             "h2": (self.chinese_font_bold, 12, 1.3),
             "h3": (self.chinese_font_bold, 10, 1.3),
             "caption": (self.chinese_font_italic, 8, 1.3),
-            "body": (self.chinese_font, 9, 1.3)
+            "body": (self.chinese_font, 9, 1.3),
         }
 
         font_name, font_size, leading_mult = STYLE_CONFIG.get(block_style, STYLE_CONFIG["body"])
 
         self._fit_text_to_box(
-            pdf,
-            text,
-            text_x,
-            text_y_bottom,
-            text_width,
-            text_height,
-            font_name,
-            font_size,
-            leading_mult
+            pdf, text, text_x, text_y_bottom, text_width, text_height, font_name, font_size, leading_mult
         )
 
     def _clip_mask_around_protected(self, mask_bbox: list, protected_zones: list) -> list | None:
@@ -248,8 +258,9 @@ class PDFBuilder:
         清理文本中的 HTML 标签，避免 ReportLab 解析错误。
         """
         import re
+
         # 移除所有 HTML 标签
-        text = re.sub(r'<[^>]+>', '', text)
+        text = re.sub(r"<[^>]+>", "", text)
         # 转义剩余的特殊字符
         text = text.replace("&", "&amp;")
         text = text.replace("<", "&lt;")
@@ -270,15 +281,15 @@ class PDFBuilder:
         font_size: float,
         leading_mult: float,
         min_font_size: float = 4.0,  # 最小字体4pt
-        font_step: float = 0.5
+        font_step: float = 0.5,
     ) -> None:
         """
         渲染文本到指定边界框，如果放不下则自动缩小字体。
         如果即使最小字体也放不下，使用裁剪防止溢出。
         """
-        from reportlab.platypus import Paragraph
-        from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.platypus import Paragraph
 
         text = self._sanitize_text(text)
         current_font_size = font_size
@@ -288,12 +299,12 @@ class PDFBuilder:
         # 循环尝试，直到文本能放下或达到最小字体
         while current_font_size >= min_font_size:
             style = ParagraphStyle(
-                name='Normal',
+                name="Normal",
                 fontName=font_name,
                 fontSize=current_font_size,
                 leading=current_font_size * leading_mult,
                 alignment=TA_LEFT,
-                textColor="black"
+                textColor="black",
             )
 
             p = Paragraph(text, style)

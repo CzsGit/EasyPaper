@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
-import axios from "axios";
+import { toast } from "sonner";
+import api from "@/lib/api";
 
 export default function Login() {
     const [email, setEmail] = useState("");
@@ -21,12 +22,12 @@ export default function Login() {
             formData.append("username", email);
             formData.append("password", password);
 
-            const response = await axios.post("/api/auth/login", formData);
+            const response = await api.post("/api/auth/login", formData);
             localStorage.setItem("token", response.data.access_token);
             navigate("/dashboard");
-        } catch (error) {
-            console.error("Login failed", error);
-            alert("Login failed. Please check your credentials.");
+        } catch (error: any) {
+            const msg = error.response?.data?.detail || "Login failed. Please check your credentials.";
+            toast.error(msg);
         } finally {
             setLoading(false);
         }

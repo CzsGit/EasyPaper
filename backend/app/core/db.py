@@ -1,6 +1,6 @@
-from typing import Generator
+from collections.abc import Generator
 
-from sqlmodel import Session, create_engine, SQLModel
+from sqlmodel import Session, SQLModel, create_engine
 
 from .config import get_config
 
@@ -12,8 +12,22 @@ engine = create_engine(config.database.url, echo=False, connect_args=connect_arg
 
 def init_db():
     # Import models to register them with SQLModel metadata
-    from ..models.user import User
-    from ..models.task import Task
+
+    # Ensure the database directory exists for SQLite
+    from .config import get_config
+
+    cfg = get_config()
+    if "sqlite" in cfg.database.url:
+        import re
+
+        # Extract file path from sqlite:///path
+        match = re.search(r"sqlite:///(.+)", cfg.database.url)
+        if match:
+            from pathlib import Path
+
+            db_path = Path(match.group(1))
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+
     SQLModel.metadata.create_all(engine)
 
 

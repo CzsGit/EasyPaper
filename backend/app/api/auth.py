@@ -1,8 +1,10 @@
 from datetime import timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlmodel import Session, select
 
 from ..core.db import get_session
@@ -10,9 +12,12 @@ from ..core.security import create_access_token, get_password_hash, verify_passw
 from ..models.user import Token, User, UserCreate, UserRead
 
 router = APIRouter(tags=["auth"])
+limiter = Limiter(key_func=get_remote_address)
+
 
 @router.post("/register", response_model=UserRead)
-def register(user_in: UserCreate, session: Session = Depends(get_session)) -> Any:
+@limiter.limit("5/minute")
+def register(request: Request, user_in: UserCreate, session: Session = Depends(get_session)) -> Any:
     user = session.exec(select(User).where(User.email == user_in.email)).first()
     if user:
         raise HTTPException(
@@ -29,17 +34,19 @@ def register(user_in: UserCreate, session: Session = Depends(get_session)) -> An
     session.refresh(user)
     return user
 
+
 @router.post("/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)) -> Any:
+@limiter.limit("10/minute")
+def login(
+    request: Request, form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)
+) -> Any:
     # OAuth2PasswordRequestForm uses 'username' for the email field
     user = session.exec(select(User).where(User.email == form_data.username)).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=400, detail="Incorrect email or password")
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
-    
-    access_token_expires = timedelta(minutes=60 * 24 * 8) # 8 days
-    access_token = create_access_token(
-        subject=user.id, expires_delta=access_token_expires
-    )
+
+    access_token_expires = timedelta(minutes=60 * 24 * 8)  # 8 days
+    access_token = create_access_token(subject=user.id, expires_delta=access_token_expires)
     return {"access_token": access_token, "token_type": "bearer"}

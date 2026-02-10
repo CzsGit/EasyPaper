@@ -1,0 +1,23 @@
+services:
+  backend:
+    build: ./backend
+    working_dir: /app
+    volumes:
+      - ./backend/config:/app/config
+      - backend-data:/app/data
+      - backend-tmp:/app/tmp
+    environment:
+      - APP_CONFIG_PATH=/app/config/config.yaml
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  backend-data:
+  backend-tmp:

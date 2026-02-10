@@ -18,3 +18,8 @@ ultralytics==8.2.2
 huggingface_hub==0.23.0
 surya-ocr==0.4.14
 pdf2zh>=1.9.0
+slowapi==0.1.9
+# dev / test
+pytest==8.2.2
+pytest-asyncio==0.23.7
+ruff==0.4.8

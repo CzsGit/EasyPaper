@@ -1,13 +1,16 @@
-import { useState, useEffect } from "react";
-import axios from "axios";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Upload, FileText, ArrowRight, Clock, CheckCircle, AlertCircle, Languages, BookOpen } from "lucide-react";
+import { Upload, FileText, ArrowRight, Clock, CheckCircle, AlertCircle, Languages, BookOpen, Trash2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import api from "@/lib/api";
+
+const MAX_FILE_SIZE_MB = 50;
 
 interface Task {
     task_id: string;
@@ -22,55 +25,115 @@ interface Task {
 const Dashboard = () => {
     const [tasks, setTasks] = useState<Task[]>([]);
     const [mode, setMode] = useState<"translate" | "simplify">("translate");
+    const [search, setSearch] = useState("");
+    const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+    const [dragging, setDragging] = useState(false);
     const navigate = useNavigate();
+    const abortRef = useRef<AbortController | null>(null);
+    const pollIntervalRef = useRef<number>(2000);
 
-    const fetchTasks = async () => {
+    const fetchTasks = useCallback(async () => {
         try {
-            const token = localStorage.getItem("token");
-            const response = await axios.get("/api/tasks", {
-                headers: { "Authorization": `Bearer ${token}` }
-            });
+            abortRef.current?.abort();
+            abortRef.current = new AbortController();
+            const response = await api.get("/api/tasks", { signal: abortRef.current.signal });
             setTasks(response.data);
-        } catch (error) {
-            console.error("Failed to fetch tasks", error);
+        } catch (error: any) {
+            if (error.name === "CanceledError") return;
         }
-    };
-
-    useEffect(() => {
-        fetchTasks();
-        // Poll for updates every 2 seconds
-        const interval = setInterval(fetchTasks, 2000);
-        return () => clearInterval(interval);
     }, []);
 
-    const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files || e.target.files.length === 0) return;
+    // Smart polling: fast when tasks are processing, slow when idle
+    useEffect(() => {
+        fetchTasks();
 
-        // Handle multiple files if needed, currently just one at a time but non-blocking
-        const file = e.target.files[0];
-        // Reset input immediately to allow selecting the same file again or another file quickly
-        e.target.value = "";
+        const tick = () => {
+            const hasActive = tasks.some((t) =>
+                ["pending", "processing", "parsing", "rewriting", "rendering"].includes(t.status)
+            );
+            pollIntervalRef.current = hasActive ? 2000 : 15000;
+        };
+        tick();
+
+        const id = setInterval(() => {
+            tick();
+            fetchTasks();
+        }, pollIntervalRef.current);
+
+        return () => {
+            clearInterval(id);
+            abortRef.current?.abort();
+        };
+    }, [fetchTasks, tasks.length, tasks.map((t) => t.status).join(",")]);
+
+    const validateFile = (file: File): boolean => {
+        if (file.type !== "application/pdf") {
+            toast.error("Only PDF files are supported.");
+            return false;
+        }
+        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+            toast.error(`File size exceeds ${MAX_FILE_SIZE_MB}MB limit.`);
+            return false;
+        }
+        return true;
+    };
+
+    const uploadFile = async (file: File) => {
+        if (!validateFile(file)) return;
 
         const formData = new FormData();
         formData.append("file", file);
         formData.append("mode", mode);
 
-        // Optimistically add task or just let polling catch it?
-        // For better UX, we could add a temporary "uploading" item, but simply unblocking is the first step.
-        // Let's just fire the request and let the user continue.
-
+        setUploadProgress(0);
         try {
-            const token = localStorage.getItem("token");
-            await axios.post("/api/upload", formData, {
-                headers: { "Authorization": `Bearer ${token}` }
+            await api.post("/api/upload", formData, {
+                onUploadProgress: (e) => {
+                    if (e.total) {
+                        setUploadProgress(Math.round((e.loaded / e.total) * 100));
+                    }
+                },
             });
-
-            // Trigger immediate fetch
+            toast.success(`"${file.name}" uploaded successfully.`);
             fetchTasks();
+        } catch (error: any) {
+            const msg = error.response?.data?.detail || "Upload failed.";
+            toast.error(msg);
+        } finally {
+            setUploadProgress(null);
+        }
+    };
 
-        } catch (error) {
-            console.error("Upload failed", error);
-            alert("Upload failed.");
+    const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files || e.target.files.length === 0) return;
+        const file = e.target.files[0];
+        e.target.value = "";
+        uploadFile(file);
+    };
+
+    // Drag & Drop handlers
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        setDragging(true);
+    };
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        setDragging(false);
+    };
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setDragging(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file) uploadFile(file);
+    };
+
+    const handleDelete = async (taskId: string) => {
+        try {
+            await api.delete(`/api/tasks/${taskId}`);
+            setTasks((prev) => prev.filter((t) => t.task_id !== taskId));
+            toast.success("Task deleted.");
+        } catch {
+            toast.error("Failed to delete task.");
         }
     };
 
@@ -100,10 +163,24 @@ const Dashboard = () => {
         }
     };
 
+    const filteredTasks = search
+        ? tasks.filter((t) => t.filename.toLowerCase().includes(search.toLowerCase()))
+        : tasks;
+
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
-            {/* Hero Section */}
-            <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/5 via-primary/10 to-transparent p-8 md:p-12 text-center border border-primary/10 shadow-sm">
+            {/* Hero Section with Drop Zone */}
+            <section
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={cn(
+                    "relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/5 via-primary/10 to-transparent p-8 md:p-12 text-center border shadow-sm transition-all",
+                    dragging
+                        ? "border-primary border-dashed border-2 bg-primary/5 scale-[1.01]"
+                        : "border-primary/10"
+                )}
+            >
                 <div className="relative z-10 mx-auto max-w-2xl space-y-6">
                     <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">
                         EasyPaper
@@ -141,23 +218,39 @@ const Dashboard = () => {
                         </button>
                     </div>
 
-                    <div className="flex justify-center pt-2">
-                        <Label
-                            htmlFor="file-upload"
-                            className={cn(
-                                "group relative flex cursor-pointer items-center justify-center gap-3 rounded-full bg-primary px-8 py-4 text-lg font-medium text-primary-foreground shadow-lg transition-all hover:bg-primary/90 hover:shadow-xl hover:scale-105 active:scale-95"
-                            )}
-                        >
-                            <Upload className="h-5 w-5" />
-                            <span>Upload PDF</span>
-                            <Input
-                                id="file-upload"
-                                type="file"
-                                accept=".pdf"
-                                className="hidden"
-                                onChange={handleUpload}
-                            />
-                        </Label>
+                    <div className="flex flex-col items-center gap-3 pt-2">
+                        {dragging ? (
+                            <p className="text-primary font-medium text-lg">Drop PDF here</p>
+                        ) : (
+                            <Label
+                                htmlFor="file-upload"
+                                className={cn(
+                                    "group relative flex cursor-pointer items-center justify-center gap-3 rounded-full bg-primary px-8 py-4 text-lg font-medium text-primary-foreground shadow-lg transition-all hover:bg-primary/90 hover:shadow-xl hover:scale-105 active:scale-95"
+                                )}
+                            >
+                                <Upload className="h-5 w-5" />
+                                <span>Upload PDF</span>
+                                <Input
+                                    id="file-upload"
+                                    type="file"
+                                    accept=".pdf"
+                                    className="hidden"
+                                    onChange={handleUpload}
+                                />
+                            </Label>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                            or drag and drop a PDF here (max {MAX_FILE_SIZE_MB}MB)
+                        </p>
+                        {uploadProgress !== null && (
+                            <div className="w-full max-w-xs space-y-1">
+                                <div className="flex justify-between text-xs text-muted-foreground">
+                                    <span>Uploading...</span>
+                                    <span>{uploadProgress}%</span>
+                                </div>
+                                <Progress value={uploadProgress} className="h-2" />
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -168,12 +261,23 @@ const Dashboard = () => {
 
             {/* Task List */}
             <section className="space-y-4">
-                <div className="flex items-center justify-between px-2">
-                    <h2 className="text-2xl font-semibold tracking-tight">Recent Documents</h2>
+                <div className="flex items-center justify-between gap-4 px-2">
+                    <h2 className="text-2xl font-semibold tracking-tight shrink-0">Recent Documents</h2>
+                    {tasks.length > 0 && (
+                        <div className="relative max-w-xs w-full">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Search documents..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                className="pl-9 h-9"
+                            />
+                        </div>
+                    )}
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {tasks.map((task) => (
+                    {filteredTasks.map((task) => (
                         <Card key={task.task_id} className="group relative overflow-hidden transition-all hover:shadow-md border-gray-200/60">
                             <CardHeader className="pb-3">
                                 <div className="flex items-start justify-between">
@@ -193,9 +297,19 @@ const Dashboard = () => {
                                             </CardDescription>
                                         </div>
                                     </div>
-                                    <div className={cn("flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border", getStatusColor(task.status))}>
-                                        {getStatusIcon(task.status)}
-                                        <span className="capitalize">{task.status}</span>
+                                    <div className="flex items-center gap-1.5">
+                                        <div className={cn("flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border", getStatusColor(task.status))}>
+                                            {getStatusIcon(task.status)}
+                                            <span className="capitalize">{task.status}</span>
+                                        </div>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-600"
+                                            onClick={() => handleDelete(task.task_id)}
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                        </Button>
                                     </div>
                                 </div>
                             </CardHeader>
@@ -233,9 +347,9 @@ const Dashboard = () => {
                         </Card>
                     ))}
 
-                    {tasks.length === 0 && (
+                    {filteredTasks.length === 0 && (
                         <div className="col-span-full py-12 text-center text-muted-foreground bg-gray-50/50 rounded-xl border border-dashed">
-                            <p>No documents yet. Upload one to get started!</p>
+                            <p>{search ? "No matching documents found." : "No documents yet. Upload one to get started!"}</p>
                         </div>
                     )}
                 </div>

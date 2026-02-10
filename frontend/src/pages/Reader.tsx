@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import axios from "axios";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2, FileText, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import api from "@/lib/api";
 
 const Reader = () => {
     const { taskId } = useParams<{ taskId: string }>();
@@ -14,44 +13,47 @@ const Reader = () => {
     const [originalPdfUrl, setOriginalPdfUrl] = useState<string | null>(null);
     const [resultPdfUrl, setResultPdfUrl] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
-    const [focusMode, setFocusMode] = useState(false);
+    const [focusMode, setFocusMode] = useState(() => window.innerWidth < 768);
+    const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+    const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Track mobile breakpoint and auto-enable focus mode
+    useEffect(() => {
+        const onResize = () => {
+            const mobile = window.innerWidth < 768;
+            setIsMobile(mobile);
+            if (mobile) setFocusMode(true);
+        };
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+    }, []);
 
     useEffect(() => {
+        let cancelled = false;
+
         const fetchStatus = async () => {
             try {
-                const token = localStorage.getItem("token");
-                const headers = { "Authorization": `Bearer ${token}` };
-
-                const response = await axios.get(`/api/status/${taskId}`, { headers });
+                const response = await api.get(`/api/status/${taskId}`);
+                if (cancelled) return;
                 setStatus(response.data.status);
 
                 if (response.data.status === "completed") {
-                    // Fetch Original PDF as blob
-                    const originalResponse = await axios.get(`/api/original/${taskId}/pdf`, {
-                        headers,
-                        responseType: 'blob'
-                    });
-                    const originalBlob = new Blob([originalResponse.data], { type: 'application/pdf' });
-                    setOriginalPdfUrl(URL.createObjectURL(originalBlob));
+                    const [originalResponse, resultResponse] = await Promise.all([
+                        api.get(`/api/original/${taskId}/pdf`, { responseType: "blob" }),
+                        api.get(`/api/result/${taskId}/pdf`, { responseType: "blob" }),
+                    ]);
+                    if (cancelled) return;
 
-                    // Fetch Result PDF as blob (Replacing HTML preview)
-                    const resultResponse = await axios.get(`/api/result/${taskId}/pdf`, {
-                        headers,
-                        responseType: 'blob'
-                    });
-                    const resultBlob = new Blob([resultResponse.data], { type: 'application/pdf' });
-                    setResultPdfUrl(URL.createObjectURL(resultBlob));
-
+                    setOriginalPdfUrl(URL.createObjectURL(new Blob([originalResponse.data], { type: "application/pdf" })));
+                    setResultPdfUrl(URL.createObjectURL(new Blob([resultResponse.data], { type: "application/pdf" })));
                     setLoading(false);
-                } else if (response.data.status === "failed") {
+                } else if (response.data.status === "failed" || response.data.status === "error") {
                     setLoading(false);
                 } else {
-                    if (response.data.status !== "completed") {
-                        setTimeout(fetchStatus, 2000);
-                    }
+                    timeoutRef.current = setTimeout(fetchStatus, 2000);
                 }
-            } catch (error) {
-                console.error("Error fetching status", error);
+            } catch {
+                if (cancelled) return;
                 setLoading(false);
                 setStatus("error");
             }
@@ -60,28 +62,38 @@ const Reader = () => {
         fetchStatus();
 
         return () => {
-            if (originalPdfUrl) URL.revokeObjectURL(originalPdfUrl);
-            if (resultPdfUrl) URL.revokeObjectURL(resultPdfUrl);
+            cancelled = true;
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
         };
     }, [taskId]);
 
-    const handleDownload = async () => {
+    // Cleanup blob URLs on unmount
+    useEffect(() => {
+        return () => {
+            if (originalPdfUrl) URL.revokeObjectURL(originalPdfUrl);
+            if (resultPdfUrl) URL.revokeObjectURL(resultPdfUrl);
+        };
+    }, [originalPdfUrl, resultPdfUrl]);
+
+    const handleDownload = () => {
         if (resultPdfUrl) {
-            const link = document.createElement('a');
+            const link = document.createElement("a");
             link.href = resultPdfUrl;
-            link.setAttribute('download', `simplified_${taskId}.pdf`);
+            link.setAttribute("download", `simplified_${taskId}.pdf`);
             document.body.appendChild(link);
             link.click();
             link.parentNode?.removeChild(link);
         }
     };
 
-    if (loading || status === "processing" || status === "pending") {
+    if (loading || status === "processing" || status === "pending" || status === "parsing" || status === "rewriting" || status === "rendering") {
         return (
             <div className="flex h-[calc(100vh-4rem)] flex-col items-center justify-center space-y-4">
                 <Loader2 className="h-12 w-12 animate-spin text-primary" />
                 <p className="text-lg font-medium text-muted-foreground">
-                    {status === "processing" ? "AI is simplifying your document..." : "Loading..."}
+                    {["processing", "parsing", "rewriting", "rendering"].includes(status)
+                        ? "AI is processing your document..."
+                        : "Loading..."}
                 </p>
             </div>
         );
@@ -109,8 +121,8 @@ const Reader = () => {
                         <ArrowLeft className="mr-2 h-4 w-4" />
                         Back
                     </Button>
-                    <div className="h-4 w-px bg-gray-200 mx-2" />
-                    <h1 className="text-sm font-medium text-gray-900">Document Reader</h1>
+                    <div className="h-4 w-px bg-gray-200 mx-2 hidden sm:block" />
+                    <h1 className="text-sm font-medium text-gray-900 hidden sm:block">Document Reader</h1>
                 </div>
                 <div className="flex items-center gap-2">
                     <Button
@@ -120,24 +132,28 @@ const Reader = () => {
                         className={cn("gap-2", focusMode && "bg-primary/10 text-primary border-primary/20")}
                     >
                         <Sparkles className="h-4 w-4" />
-                        {focusMode ? "Show Original" : "Focus Mode"}
+                        <span className="hidden sm:inline">{focusMode ? "Show Original" : "Focus Mode"}</span>
                     </Button>
                     <Button size="sm" onClick={handleDownload} className="gap-2">
                         <Download className="h-4 w-4" />
-                        Download PDF
+                        <span className="hidden sm:inline">Download PDF</span>
                     </Button>
                 </div>
             </div>
 
             {/* Split Pane */}
-            <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1 rounded-xl border bg-white shadow-sm overflow-hidden" style={{ direction: 'ltr' }}>
+            <ResizablePanelGroup
+                direction={isMobile ? "vertical" : "horizontal"}
+                className="min-h-0 flex-1 rounded-xl border bg-white shadow-sm overflow-hidden"
+                style={{ direction: "ltr" }}
+            >
                 {/* Left Panel: AI Simplified PDF */}
                 <ResizablePanel defaultSize={focusMode ? 100 : 50} minSize={30}>
                     <div className="flex h-full flex-col bg-white">
                         <div className="flex items-center justify-between border-b bg-white px-4 py-2">
                             <div className="flex items-center gap-2">
                                 <Sparkles className="h-3 w-3 text-primary" />
-                                <span className="text-xs font-medium text-primary uppercase tracking-wider">AI Simplified Result (PDF)</span>
+                                <span className="text-xs font-medium text-primary uppercase tracking-wider">AI Result (PDF)</span>
                             </div>
                         </div>
                         <div className="flex-1 bg-gray-100/50">
