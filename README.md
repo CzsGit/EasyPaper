@@ -29,18 +29,32 @@ Upload a PDF, get back a clean, readable version — with all figures, equations
 - English → Simple English vocabulary simplification (CEFR A2/B1)
 - Real-time processing progress tracking
 - Side-by-side comparison reader (original vs. processed)
-- HTML preview + PDF download
+- Drag-and-drop file upload with progress bar
+- Task management — search, filter, and delete tasks
+- Mobile-responsive reader with focus mode
+- JWT authentication with API rate limiting
+- Docker support for one-command deployment
 - Self-hosted, runs locally with your own LLM API key
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: Docker (Recommended)
 
-- Python 3.10+
-- Node.js 18+
-- An LLM API key (e.g. OpenRouter, or any OpenAI-compatible API)
+```bash
+# Set up config
+cp backend/config/config.example.yaml backend/config/config.yaml
+# Edit config.yaml — add your API key and choose your model
 
-### Backend
+docker compose up --build
+```
+
+Open http://localhost in your browser.
+
+### Option 2: Local Development
+
+**Prerequisites:** Python 3.10+, Node.js 18+, an LLM API key
+
+**Backend:**
 
 ```bash
 cd backend
@@ -48,14 +62,13 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Set up config
 cp config/config.example.yaml config/config.yaml
 # Edit config.yaml — add your API key and choose your model
 
 uvicorn app.main:app --reload
 ```
 
-### Frontend
+**Frontend:**
 
 ```bash
 cd frontend
@@ -71,14 +84,42 @@ Edit `backend/config/config.yaml`:
 
 ```yaml
 llm:
-  api_key: "YOUR_API_KEY"        # Your LLM API key
-  base_url: "https://api.xxx.com/v1"  # API endpoint
-  model: "gemini-2.5-flash"      # Model for processing
+  api_key: "YOUR_API_KEY"
+  base_url: "https://openrouter.ai/api/v1"
+  model: "gemini-2.5-flash"
   judge_model: "gemini-2.5-flash"
+
 processing:
   max_pages: 100
+  max_upload_mb: 50          # Max upload file size
+  max_concurrent: 3          # Max concurrent processing tasks
   preview_html: true
+
+database:
+  url: "sqlite:///./data/app.db"
+
+security:
+  secret_key: "CHANGE_THIS_TO_A_SECURE_SECRET_KEY"
+  cors_origins:
+    - "http://localhost:5173"
 ```
+
+## Development
+
+```bash
+# Backend — lint & test
+cd backend
+ruff check app/ tests/
+pytest
+
+# Frontend — lint, type-check & test
+cd frontend
+npm run lint
+npm run type-check
+npm test
+```
+
+CI runs automatically on push/PR via GitHub Actions.
 
 ## Tech Stack
 
@@ -86,7 +127,8 @@ processing:
 |-----------|------------|
 | Backend | FastAPI, PyMuPDF, ReportLab, pdf2zh |
 | Frontend | React, TypeScript, Vite, Tailwind CSS, Radix UI |
-| Database | SQLite (default) |
+| Database | SQLite (via SQLModel + Alembic) |
+| DevOps | Docker, GitHub Actions, ruff, ESLint, Prettier |
 
 ## License
 

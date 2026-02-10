@@ -29,18 +29,32 @@ EasyPaper 是一个可本地部署的 Web 应用，帮助你更轻松地阅读�
 - 英文 → 简单英文词汇简化（CEFR A2/B1 级别）
 - 实时处理进度展示
 - 原文与处理结果并排对比阅读
-- HTML 预览 + PDF 下载
+- 拖拽上传文件，显示上传进度条
+- 任务管理 — 搜索、筛选、删除任务
+- 移动端适配阅读器，支持专注模式
+- JWT 身份认证 + API 限流保护
+- Docker 一键部署
 - 本地部署，使用自己的 LLM API Key
 
 ## 快速开始
 
-### 环境要求
+### 方式一：Docker 部署（推荐）
 
-- Python 3.10+
-- Node.js 18+
-- 一个 LLM API Key（如 OpenRouter 或任何 OpenAI 兼容 API）
+```bash
+# 配置
+cp backend/config/config.example.yaml backend/config/config.yaml
+# 编辑 config.yaml — 填入你的 API Key，选择模型
 
-### 启动后端
+docker compose up --build
+```
+
+浏览器打开 http://localhost 即可使用。
+
+### 方式二：本地开发
+
+**环境要求：** Python 3.10+、Node.js 18+、一个 LLM API Key
+
+**启动后端：**
 
 ```bash
 cd backend
@@ -48,14 +62,13 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# 配置
 cp config/config.example.yaml config/config.yaml
 # 编辑 config.yaml — 填入你的 API Key，选择模型
 
 uvicorn app.main:app --reload
 ```
 
-### 启动前端
+**启动前端：**
 
 ```bash
 cd frontend
@@ -71,14 +84,42 @@ npm run dev
 
 ```yaml
 llm:
-  api_key: "YOUR_API_KEY"        # 你的 LLM API Key
-  base_url: "https://api.xxx.com/v1"  # API 地址
-  model: "gemini-2.5-flash"      # 处理模型
+  api_key: "YOUR_API_KEY"
+  base_url: "https://openrouter.ai/api/v1"
+  model: "gemini-2.5-flash"
   judge_model: "gemini-2.5-flash"
+
 processing:
-  max_pages: 100                  # 最大页数限制
+  max_pages: 100
+  max_upload_mb: 50          # 最大上传文件大小（MB）
+  max_concurrent: 3          # 最大并发处理任务数
   preview_html: true
+
+database:
+  url: "sqlite:///./data/app.db"
+
+security:
+  secret_key: "CHANGE_THIS_TO_A_SECURE_SECRET_KEY"
+  cors_origins:
+    - "http://localhost:5173"
 ```
+
+## 开发指南
+
+```bash
+# 后端 — 代码检查 & 测试
+cd backend
+ruff check app/ tests/
+pytest
+
+# 前端 — 代码检查、类型检查 & 测试
+cd frontend
+npm run lint
+npm run type-check
+npm test
+```
+
+Push/PR 时会通过 GitHub Actions 自动运行 CI。
 
 ## 技术栈
 
@@ -86,7 +127,8 @@ processing:
 |------|------|
 | 后端 | FastAPI, PyMuPDF, ReportLab, pdf2zh |
 | 前端 | React, TypeScript, Vite, Tailwind CSS, Radix UI |
-| 数据库 | SQLite（默认） |
+| 数据库 | SQLite（SQLModel + Alembic） |
+| 工程化 | Docker, GitHub Actions, ruff, ESLint, Prettier |
 
 ## 开源协议
 
