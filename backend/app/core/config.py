@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -7,6 +8,8 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class LLMConfig(BaseModel):
@@ -87,4 +90,15 @@ def get_config() -> AppConfig:
             raise FileNotFoundError("Config file not found in config/config.yaml or backend/config/config.yaml")
 
     raw = _load_yaml(config_path)
-    return AppConfig(**raw)
+    config = AppConfig(**raw)
+
+    # Validate critical settings at startup
+    if "CHANGE_THIS" in config.security.secret_key:
+        logger.warning(
+            "SECURITY WARNING: secret_key is still the default value. "
+            "Set a strong secret key in config.yaml for production use."
+        )
+    if not config.llm.api_key or config.llm.api_key == "YOUR_API_KEY":
+        logger.warning("LLM api_key is not configured. LLM features will fail.")
+
+    return config

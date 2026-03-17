@@ -128,7 +128,14 @@ class PdfDownloader:
         if hostname in BLOCKED_HOSTS:
             raise ValueError("URL points to a blocked host")
 
-        if re.match(r"^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)", hostname):
+        if re.match(
+            r"^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|0\.)",
+            hostname,
+        ):
+            raise ValueError("URL points to a private network")
+
+        # Block hostnames that resolve to common internal patterns
+        if hostname.endswith(".local") or hostname.endswith(".internal"):
             raise ValueError("URL points to a private network")
 
     def _validate_content_type(self, content_type: str, url: str) -> None:

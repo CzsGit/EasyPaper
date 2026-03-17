@@ -8,8 +8,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlmodel import Session, select
+
+logger = logging.getLogger(__name__)
 
 from ..core.db import engine
 from ..models.knowledge import (
@@ -27,13 +33,16 @@ from .deps import get_current_user
 
 def create_knowledge_router(extractor: KnowledgeExtractor) -> APIRouter:
     router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
+    limiter = Limiter(key_func=get_remote_address)
 
     # ------------------------------------------------------------------
     # 知识提取
     # ------------------------------------------------------------------
 
     @router.post("/extract/{task_id}")
+    @limiter.limit("5/minute")
     async def extract_knowledge(
+        request: Request,
         task_id: str,
         user: User = Depends(get_current_user),
     ) -> dict[str, str]:
@@ -67,7 +76,7 @@ def create_knowledge_router(extractor: KnowledgeExtractor) -> APIRouter:
             try:
                 await extractor.extract(pdf_bytes, task_id, user.id, paper_id)
             except Exception:
-                pass  # 错误已记录在 extractor 中
+                logger.exception("Knowledge extraction failed for task %s", task_id)
 
         asyncio.create_task(_do_extract())
 

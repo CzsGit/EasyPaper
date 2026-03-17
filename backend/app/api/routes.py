@@ -199,7 +199,9 @@ def create_router(task_manager: TaskManager, processor: DocumentProcessor) -> AP
         return {"status": "deleted"}
 
     @router.post("/summary/{task_id}")
+    @limiter.limit("5/minute")
     async def generate_summary(
+        request: Request,
         task_id: str,
         user: User = Depends(get_current_user),
     ) -> dict[str, Any]:

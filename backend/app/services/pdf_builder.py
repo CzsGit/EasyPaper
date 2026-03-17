@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import io
+import logging
 
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
+
+logger = logging.getLogger(__name__)
 
 
 class PDFBuilder:
@@ -70,7 +73,7 @@ class PDFBuilder:
         pdf = canvas.Canvas(buffer)
 
         pages = doc_layout.get("pages", [])
-        print(f"DEBUG: Builder received {len(pages)} pages")
+        logger.debug("Builder received %d pages", len(pages))
 
         for page in pages:
             self._render_page(pdf, page)
@@ -92,7 +95,7 @@ class PDFBuilder:
                 img_reader = ImageReader(io.BytesIO(img_data))
                 pdf.drawImage(img_reader, 0, 0, width=width, height=height)
             except Exception as e:
-                print(f"Error drawing background: {e}")
+                logger.warning("Error drawing background: %s", e)
 
         # 1.1 添加页面书签
         page_index = page.get("page_index", 0)
@@ -321,7 +324,7 @@ class PDFBuilder:
         # 检查是否溢出
         needs_clip = actual_h > height
         if needs_clip:
-            print(f"WARNING: Text overflow - need {actual_h:.1f}px but only have {height:.1f}px, applying clip")
+            logger.debug("Text overflow - need %.1fpx but only have %.1fpx, applying clip", actual_h, height)
             # 使用裁剪路径防止溢出
             pdf.saveState()
             clip_path = pdf.beginPath()

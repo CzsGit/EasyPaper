@@ -31,7 +31,6 @@ class TaskResult(SQLModel):
 
 class Task(SQLModel, table=True):
     task_id: str = Field(primary_key=True)
-    user_id: int | None = Field(default=None, index=True)
     filename: str
     mode: str = Field(default="translate")  # "translate" or "simplify"
 
@@ -54,7 +53,7 @@ class Task(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     # User ownership
-    user_id: int | None = Field(default=None, foreign_key="user.id")
+    user_id: int | None = Field(default=None, foreign_key="user.id", index=True)
 
     @property
     def progress(self) -> TaskProgress:
