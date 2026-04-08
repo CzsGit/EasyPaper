@@ -6,6 +6,7 @@ __pycache__/
 *.pyc
 *.pyo
 backend/.venv/
+backend/.venv-dev/
 
 # Node
 frontend/node_modules/

@@ -1,9 +1,9 @@
 fastapi==0.111.0
-uvicorn==0.30.1
+uvicorn==0.44.0
 python-multipart==0.0.9
 PyMuPDF==1.24.5
 reportlab==4.2.0
-httpx==0.27.0
+httpx==0.28.1
 PyYAML==6.0.1
 python-dotenv==1.0.1
 sqlmodel==0.0.19
@@ -20,6 +20,7 @@ huggingface_hub==0.23.0
 surya-ocr==0.4.14
 pdf2zh>=1.9.0
 slowapi==0.1.9
+mcp==1.27.0
 # dev / test
 pytest==8.2.2
 pytest-asyncio==0.23.7

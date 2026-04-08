@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.core.config import AppConfig
 from app.core import db as db_module
+from app.core.config import AppConfig
 from app.models.agent import AgentTranslateRequest, DraftStatus, TranslationDraft
 from app.services.pdf_downloader import DownloadResult
 from app.services.translation_draft_service import TranslationDraftService

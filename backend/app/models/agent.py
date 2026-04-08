@@ -57,10 +57,25 @@ class AgentTranslateAccepted(SQLModel, table=False):
     status_url: str
 
 
+class AgentTranslateToolResult(SQLModel, table=False):
+    status: str
+    draft_id: str
+    missing_fields: list[str] = []
+    question: str | None = None
+    options: list[AgentOption] = []
+    task_id: str | None = None
+    status_url: str | None = None
+
+
 class AgentArtifactMetadata(SQLModel, table=False):
     task_id: str
     filename: str
     content_type: str = "application/pdf"
+
+
+class AgentArtifactPayload(AgentArtifactMetadata, table=False):
+    download_path: str | None = None
+    pdf_base64: str | None = None
 
 
 class AgentTaskStatus(SQLModel, table=False):

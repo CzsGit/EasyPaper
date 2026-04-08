@@ -4,16 +4,15 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.api.agent_deps import require_agent_api_key
 from app.api.agent_routes import create_agent_router
 from app.models.agent import DraftStatus, TranslationDraft
 from app.models.task import Task, TaskStatus
-from app.models.user import User
 from app.services.translation_artifact_service import TranslationArtifactService
 from app.services.translation_draft_service import TranslationDraftService
 from app.services.translation_execution_service import TranslationExecutionService

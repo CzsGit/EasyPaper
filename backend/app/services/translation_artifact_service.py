@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 from fastapi.responses import FileResponse
 
-from ..models.agent import AgentArtifactMetadata, AgentTaskStatus
+from ..models.agent import AgentArtifactMetadata, AgentArtifactPayload, AgentTaskStatus
 
 
 class TranslationArtifactService:
@@ -32,6 +33,24 @@ class TranslationArtifactService:
             message=task.message,
             error=task.error,
             artifact_ready=artifact_ready,
+        )
+
+    def get_payload(self, task_id: str) -> AgentArtifactPayload:
+        metadata = self.get_metadata(task_id)
+        task = self.task_manager.get_task(task_id)
+        if not task or not task.result_pdf_path:
+            raise ValueError(f"Artifact not found for task: {task_id}")
+
+        result_path = Path(task.result_pdf_path)
+        if not result_path.exists():
+            raise FileNotFoundError(result_path)
+
+        return AgentArtifactPayload(
+            task_id=metadata.task_id,
+            filename=metadata.filename,
+            content_type=metadata.content_type,
+            download_path=f"/api/agent/v1/tasks/{task_id}/artifact",
+            pdf_base64=base64.b64encode(result_path.read_bytes()).decode("ascii"),
         )
 
     def build_file_response(self, task_id: str) -> FileResponse:

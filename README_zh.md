@@ -148,7 +148,56 @@ security:
   secret_key: "CHANGE_THIS"           # JWT 签名密钥 — 生产环境必须修改
   cors_origins:
     - "http://localhost:5173"
+
+agent:
+  api_keys:
+    - "CHANGE_ME"                     # 给 agent 调用方单独使用的 key
+  draft_ttl_minutes: 30
+  mcp_mount_path: "/mcp"
 ```
+
+---
+
+## Agent 接入
+
+EasyPaper 现在在现有 Web 应用之上额外提供了一层面向 agent 的 PDF 翻译接口。
+
+### HTTP
+
+- `POST /api/agent/v1/translate`
+- `GET /api/agent/v1/tasks/{task_id}`
+- `GET /api/agent/v1/tasks/{task_id}/artifact`
+- 认证请求头：`X-Agent-Api-Key: <your key>`
+
+如果没有提供 `highlight`，翻译接口不会直接启动任务，而是返回结构化追问结果：
+
+```json
+{
+  "status": "needs_input",
+  "draft_id": "dr_123",
+  "missing_fields": ["highlight"],
+  "question": "Do you want key sentences highlighted in the translated PDF?"
+}
+```
+
+外部 agent 拿到这个结果后，向用户补问并带着相同 `draft_id` 再调用一次即可；参数补齐后接口会返回 `202 Accepted` 和 `task_id`。
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/agent/v1/translate \
+  -H 'Content-Type: application/json' \
+  -H 'X-Agent-Api-Key: CHANGE_ME' \
+  -d '{"pdf_base64":"JVBERi0xLjQgdGVzdA=="}'
+```
+
+### MCP
+
+- 挂载路径：`/mcp`
+- 工具：
+  - `translate_pdf`
+  - `get_translation_task`
+  - `get_translation_artifact`
+
+`translate_pdf` 与 HTTP 接口共用同一套 draft 流程。`get_translation_artifact` 会返回元数据和 base64 编码后的 PDF，方便外部 agent 再把结果发回自己的客户端。
 
 ---
 
@@ -172,6 +221,9 @@ security:
 | `POST /api/upload` | 上传 PDF（翻译/简化，可选高亮） |
 | `GET /api/status/{id}` | 处理状态与进度 |
 | `GET /api/result/{id}/pdf` | 下载处理后的 PDF |
+| `POST /api/agent/v1/translate` | Agent 翻译 draft / 提交接口 |
+| `GET /api/agent/v1/tasks/{id}` | Agent 任务状态 |
+| `GET /api/agent/v1/tasks/{id}/artifact` | Agent 成果文件下载 |
 | `POST /api/knowledge/extract/{id}` | 触发知识提取 |
 | `GET /api/knowledge/papers` | 知识库论文列表 |
 | `GET /api/knowledge/graph` | 知识图谱（实体 + 关系） |

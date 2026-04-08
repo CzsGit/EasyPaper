@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,9 +11,6 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-
-logger = logging.getLogger(__name__)
-
 from sqlmodel import Session
 
 from .api.agent_routes import create_agent_router
@@ -22,12 +20,15 @@ from .api.routes import create_router
 from .core.config import get_config
 from .core.db import engine, init_db
 from .core.logger import setup_logging
+from .mcp.server import create_mcp_server
 from .services.document_processor import DocumentProcessor
 from .services.knowledge_extractor import KnowledgeExtractor
 from .services.task_manager import TaskManager
 from .services.translation_artifact_service import TranslationArtifactService
 from .services.translation_draft_service import TranslationDraftService
 from .services.translation_execution_service import TranslationExecutionService
+
+logger = logging.getLogger(__name__)
 
 setup_logging()
 config = get_config()
@@ -45,6 +46,12 @@ draft_service = TranslationDraftService(
 )
 execution_service = TranslationExecutionService(task_manager=task_manager, processor=processor)
 artifact_service = TranslationArtifactService(task_manager=task_manager)
+mcp_server = create_mcp_server(
+    draft_service=draft_service,
+    execution_service=execution_service,
+    artifact_service=artifact_service,
+    mount_path=config.agent.mcp_mount_path,
+)
 
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="PDF Simplifier", version="1.0.0")
@@ -74,6 +81,7 @@ app.include_router(
 )
 app.include_router(create_router(task_manager, processor))
 app.include_router(create_knowledge_router(knowledge_extractor))
+app.router.routes.extend(mcp_server.streamable_http_app().routes)
 
 
 @app.get("/health")
@@ -82,24 +90,31 @@ async def healthcheck() -> dict:
 
 
 _cleanup_task: asyncio.Task | None = None
+_mcp_session_context: Any = None
 
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    global _cleanup_task
+    global _cleanup_task, _mcp_session_context
     init_db()
     Path(config.storage.temp_dir).mkdir(parents=True, exist_ok=True)
+    _mcp_session_context = mcp_server.session_manager.run()
+    await _mcp_session_context.__aenter__()
     _cleanup_task = asyncio.create_task(run_cleanup_task())
 
 
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
+    global _mcp_session_context
     if _cleanup_task and not _cleanup_task.done():
         _cleanup_task.cancel()
         try:
             await _cleanup_task
         except asyncio.CancelledError:
             pass
+    if _mcp_session_context is not None:
+        await _mcp_session_context.__aexit__(None, None, None)
+        _mcp_session_context = None
     # Run one final cleanup before exit
     try:
         task_manager.cleanup()

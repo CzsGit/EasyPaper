@@ -148,7 +148,56 @@ security:
   secret_key: "CHANGE_THIS"           # JWT signing key — must change in production
   cors_origins:
     - "http://localhost:5173"
+
+agent:
+  api_keys:
+    - "CHANGE_ME"                     # Separate key for agent callers
+  draft_ttl_minutes: 30
+  mcp_mount_path: "/mcp"
 ```
+
+---
+
+## Agent Integration
+
+EasyPaper now exposes the PDF translation flow as an agent-friendly interface on top of the existing Web app.
+
+### HTTP
+
+- `POST /api/agent/v1/translate`
+- `GET /api/agent/v1/tasks/{task_id}`
+- `GET /api/agent/v1/tasks/{task_id}/artifact`
+- Auth header: `X-Agent-Api-Key: <your key>`
+
+If `highlight` is omitted, the translation endpoint returns a structured follow-up contract instead of starting the job:
+
+```json
+{
+  "status": "needs_input",
+  "draft_id": "dr_123",
+  "missing_fields": ["highlight"],
+  "question": "Do you want key sentences highlighted in the translated PDF?"
+}
+```
+
+Once the missing field is supplied with the same `draft_id`, the API returns `202 Accepted` and a `task_id`.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/agent/v1/translate \
+  -H 'Content-Type: application/json' \
+  -H 'X-Agent-Api-Key: CHANGE_ME' \
+  -d '{"pdf_base64":"JVBERi0xLjQgdGVzdA=="}'
+```
+
+### MCP
+
+- Mount path: `/mcp`
+- Tools:
+  - `translate_pdf`
+  - `get_translation_task`
+  - `get_translation_artifact`
+
+`translate_pdf` follows the same draft workflow as the HTTP endpoint. `get_translation_artifact` returns metadata plus a base64-encoded PDF so an external agent can pass the file back to its own client surface.
 
 ---
 
@@ -172,6 +221,9 @@ security:
 | `POST /api/upload` | Upload PDF (translate/simplify, optional highlight) |
 | `GET /api/status/{id}` | Processing status & progress |
 | `GET /api/result/{id}/pdf` | Download processed PDF |
+| `POST /api/agent/v1/translate` | Agent translation draft + submit endpoint |
+| `GET /api/agent/v1/tasks/{id}` | Agent task status |
+| `GET /api/agent/v1/tasks/{id}/artifact` | Agent artifact download |
 | `POST /api/knowledge/extract/{id}` | Trigger knowledge extraction |
 | `GET /api/knowledge/papers` | List knowledge base papers |
 | `GET /api/knowledge/graph` | Knowledge graph (entities + relationships) |

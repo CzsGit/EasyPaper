@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.core.db import get_session
@@ -7,7 +8,18 @@ from app.core.db import get_session
 
 @pytest.fixture(name="engine")
 def engine_fixture():
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    from app.models import (
+        agent,  # noqa: F401
+        knowledge,  # noqa: F401
+        task,  # noqa: F401
+        user,  # noqa: F401
+    )
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     SQLModel.metadata.create_all(engine)
     yield engine
     SQLModel.metadata.drop_all(engine)

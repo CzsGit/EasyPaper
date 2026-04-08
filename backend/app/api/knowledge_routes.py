@@ -5,17 +5,14 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
 from pathlib import Path
 from typing import Any
-
-import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlmodel import Session, select
-
-logger = logging.getLogger(__name__)
 
 from ..core.db import engine
 from ..models.knowledge import (
@@ -29,6 +26,8 @@ from ..models.task import Task, TaskStatus
 from ..models.user import User
 from ..services.knowledge_extractor import KnowledgeExtractor
 from .deps import get_current_user
+
+logger = logging.getLogger(__name__)
 
 
 def create_knowledge_router(extractor: KnowledgeExtractor) -> APIRouter:

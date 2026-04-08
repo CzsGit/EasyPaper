@@ -15,8 +15,8 @@ from ..core.config import get_config
 from ..models.task import TaskStatus
 from ..models.user import User
 from ..services.document_processor import DocumentProcessor
-from ..services.pdf_downloader import PdfDownloader
 from ..services.paper_summarizer import PaperSummarizer
+from ..services.pdf_downloader import PdfDownloader
 from ..services.task_manager import TaskManager
 from .deps import get_current_user
 
@@ -92,17 +92,17 @@ def create_router(task_manager: TaskManager, processor: DocumentProcessor) -> AP
         try:
             result = await downloader.download(body.url)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except httpx.HTTPStatusError as exc:
             raise HTTPException(
                 status_code=502,
                 detail=f"Failed to download PDF: HTTP {exc.response.status_code}",
-            )
-        except httpx.TimeoutException:
-            raise HTTPException(status_code=504, detail="Download timed out")
+            ) from exc
+        except httpx.TimeoutException as exc:
+            raise HTTPException(status_code=504, detail="Download timed out") from exc
         except Exception as exc:
             logger.exception("Unexpected error downloading PDF from URL")
-            raise HTTPException(status_code=502, detail=f"Download failed: {exc}")
+            raise HTTPException(status_code=502, detail=f"Download failed: {exc}") from exc
 
         file_bytes = result.file_bytes
         filename = result.filename
@@ -231,7 +231,7 @@ def create_router(task_manager: TaskManager, processor: DocumentProcessor) -> AP
             summary = await summarizer.summarize(pdf_bytes)
         except Exception as exc:
             logger.exception("Summary generation failed")
-            raise HTTPException(status_code=500, detail="摘要生成失败，请稍后重试")
+            raise HTTPException(status_code=500, detail="摘要生成失败，请稍后重试") from exc
 
         # Cache result
         task_manager.set_summary(task_id, json.dumps(summary, ensure_ascii=False))
