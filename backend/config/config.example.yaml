@@ -13,6 +13,11 @@ security:
   cors_origins:
     - "http://localhost:5173"
     - "http://127.0.0.1:5173"
+agent:
+  api_keys:
+    - "CHANGE_ME"
+  draft_ttl_minutes: 30
+  mcp_mount_path: "/mcp"
 storage:
   cleanup_minutes: 30
   temp_dir: "./backend/tmp"

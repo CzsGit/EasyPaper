@@ -3,7 +3,6 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.core.db import get_session
-from app.main import app
 
 
 @pytest.fixture(name="engine")
@@ -22,6 +21,8 @@ def session_fixture(engine):
 
 @pytest.fixture(name="client")
 def client_fixture(engine):
+    from app.main import app
+
     def override_get_session():
         with Session(engine) as session:
             yield session

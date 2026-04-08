@@ -48,6 +48,12 @@ class SecurityConfig(BaseModel):
     )
 
 
+class AgentConfig(BaseModel):
+    api_keys: list[str] = Field(default=["CHANGE_ME"], alias="api_keys")
+    draft_ttl_minutes: int = Field(30, alias="draft_ttl_minutes")
+    mcp_mount_path: str = Field("/mcp", alias="mcp_mount_path")
+
+
 class AppConfig(BaseModel):
     llm: LLMConfig
     processing: ProcessingConfig = ProcessingConfig()
@@ -55,6 +61,7 @@ class AppConfig(BaseModel):
     logging: LoggingConfig = LoggingConfig()
     database: DatabaseConfig = DatabaseConfig()
     security: SecurityConfig = SecurityConfig()
+    agent: AgentConfig = AgentConfig()
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
