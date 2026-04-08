@@ -48,3 +48,25 @@ class AgentTranslateNeedsInput(SQLModel, table=False):
 class AgentTranslateReady(SQLModel, table=False):
     status: str = "ready"
     draft_id: str
+
+
+class AgentTranslateAccepted(SQLModel, table=False):
+    status: str = "accepted"
+    draft_id: str
+    task_id: str
+    status_url: str
+
+
+class AgentArtifactMetadata(SQLModel, table=False):
+    task_id: str
+    filename: str
+    content_type: str = "application/pdf"
+
+
+class AgentTaskStatus(SQLModel, table=False):
+    task_id: str
+    status: str
+    percent: int
+    message: str
+    error: str | None = None
+    artifact_ready: bool = False

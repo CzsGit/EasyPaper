@@ -1,4 +1,5 @@
 import base64
+from pathlib import Path
 
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
@@ -6,6 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.core.config import AppConfig
 from app.core import db as db_module
 from app.models.agent import AgentTranslateRequest, DraftStatus, TranslationDraft
+from app.services.pdf_downloader import DownloadResult
 from app.services.translation_draft_service import TranslationDraftService
 
 
@@ -112,3 +114,37 @@ async def test_update_existing_draft_marks_it_ready_when_highlight_is_provided(t
         assert draft is not None
         assert draft.status == DraftStatus.READY
         assert draft.highlight is False
+
+
+@pytest.mark.asyncio
+async def test_create_draft_downloads_pdf_from_url(tmp_path):
+    class DownloaderStub:
+        async def download(self, url: str) -> DownloadResult:
+            assert url == "https://example.com/paper.pdf"
+            return DownloadResult(
+                file_bytes=b"%PDF-1.4 from-url",
+                filename="paper.pdf",
+                content_type="application/pdf",
+            )
+
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+
+    service = TranslationDraftService(
+        session_factory=lambda: Session(engine),
+        temp_dir=tmp_path,
+        draft_ttl_minutes=30,
+        downloader=DownloaderStub(),
+    )
+
+    response = await service.create_or_update_draft(
+        AgentTranslateRequest(pdf_url="https://example.com/paper.pdf")
+    )
+
+    assert response.status == "needs_input"
+
+    with Session(engine) as session:
+        draft = session.get(TranslationDraft, response.draft_id)
+        assert draft is not None
+        assert draft.source_url == "https://example.com/paper.pdf"
+        assert Path(draft.source_path).read_bytes().startswith(b"%PDF")

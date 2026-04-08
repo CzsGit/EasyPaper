@@ -13,15 +13,21 @@ from slowapi.util import get_remote_address
 
 logger = logging.getLogger(__name__)
 
+from sqlmodel import Session
+
+from .api.agent_routes import create_agent_router
 from .api.auth import router as auth_router
 from .api.knowledge_routes import create_knowledge_router
 from .api.routes import create_router
 from .core.config import get_config
-from .core.db import init_db
+from .core.db import engine, init_db
 from .core.logger import setup_logging
 from .services.document_processor import DocumentProcessor
 from .services.knowledge_extractor import KnowledgeExtractor
 from .services.task_manager import TaskManager
+from .services.translation_artifact_service import TranslationArtifactService
+from .services.translation_draft_service import TranslationDraftService
+from .services.translation_execution_service import TranslationExecutionService
 
 setup_logging()
 config = get_config()
@@ -32,6 +38,13 @@ knowledge_extractor = KnowledgeExtractor(
     model=config.llm.model,
     base_url=config.llm.base_url,
 )
+draft_service = TranslationDraftService(
+    session_factory=lambda: Session(engine),
+    temp_dir=config.storage.temp_dir,
+    draft_ttl_minutes=config.agent.draft_ttl_minutes,
+)
+execution_service = TranslationExecutionService(task_manager=task_manager, processor=processor)
+artifact_service = TranslationArtifactService(task_manager=task_manager)
 
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="PDF Simplifier", version="1.0.0")
@@ -52,6 +65,13 @@ app.add_middleware(
 )
 
 app.include_router(auth_router, prefix="/api/auth")
+app.include_router(
+    create_agent_router(
+        draft_service=draft_service,
+        execution_service=execution_service,
+        artifact_service=artifact_service,
+    )
+)
 app.include_router(create_router(task_manager, processor))
 app.include_router(create_knowledge_router(knowledge_extractor))
 
@@ -92,5 +112,6 @@ async def run_cleanup_task() -> None:
         await asyncio.sleep(60 * config.storage.cleanup_minutes)
         try:
             task_manager.cleanup()
+            draft_service.cleanup_expired_drafts()
         except Exception as exc:  # noqa: BLE001
             logger.error("Cleanup failed: %s", exc)
