@@ -25,6 +25,8 @@ backend/models/
 # IDE & editor
 .history/
 .vscode/
+.worktrees
+.worktrees/
 *.swp
 
 # Test / debug files
