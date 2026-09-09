@@ -146,3 +146,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .search-results span { color: var(--muted); font-size: .7rem; line-height: 1.4; }
 .reader-status + .reader-layout .outline-rail { top: 6.25rem; height: calc(100dvh - 6.25rem); }
 @media (max-width: 760px) { .reader-layout { display: block; } .pdf-reading { padding: .5rem 0 2rem; } .pdf-frame { height: calc(100dvh - 10rem); min-height: 42rem; } .reader-status { font-size: .72rem; } }
+
+.reader-layout.ask-open { grid-template-columns: 15rem minmax(0, 1fr) 23rem; }
+.outline-rail { z-index: 2; }
+@media (max-width: 1100px) { .reader-layout.ask-open { grid-template-columns: 11rem minmax(0, 1fr); } }
