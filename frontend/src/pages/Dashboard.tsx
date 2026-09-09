@@ -26,7 +26,7 @@ interface Task {
     mode?: "translate" | "simplify";
     highlight?: boolean;
     can_read?: boolean;
-    reading?: { block_id: string; understood_count: number; updated_at: string };
+    reading?: { block_id: string; page?: number; understood_count: number; updated_at: string };
 }
 
 const Dashboard = () => {
@@ -465,7 +465,7 @@ const Dashboard = () => {
                                                 variant="outline"
                                                 onClick={() => navigate(`/reader/${task.task_id}`)}
                                             >
-                                                {task.reading?.block_id ? `继续阅读（已读 ${task.reading.understood_count} 段）` : "开始阅读"}
+                                                {task.reading?.block_id ? `继续阅读 · 第 ${task.reading.page || ""} 页` : "开始阅读"}
                                                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                                             </Button>
                                             <Button

@@ -61,7 +61,13 @@ class TaskManager:
 
         with Session(engine) as session:
             states = session.exec(select(ReadingState).where(ReadingState.user_id == user_id)).all()
-            return {state.task_id: {"block_id": state.block_id, "understood_count": len(json.loads(state.understood_json)), "updated_at": state.updated_at.isoformat()} for state in states}
+            documents = {d.task_id: json.loads(d.document_json) for d in session.exec(select(ReadingDocument)).all()}
+            result = {}
+            for state in states:
+                blocks = documents.get(state.task_id, {}).get("blocks", [])
+                current = next((b for b in blocks if b.get("id") == state.block_id), None)
+                result[state.task_id] = {"block_id": state.block_id, "page": current.get("page") if current else None, "understood_count": len(json.loads(state.understood_json)), "updated_at": state.updated_at.isoformat()}
+            return result
 
     def requeue(self, task_id: str) -> None:
         with Session(engine) as session:
