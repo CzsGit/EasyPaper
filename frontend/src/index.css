@@ -150,3 +150,5 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .reader-layout.ask-open { grid-template-columns: 15rem minmax(0, 1fr) 23rem; }
 .outline-rail { z-index: 2; }
 @media (max-width: 1100px) { .reader-layout.ask-open { grid-template-columns: 11rem minmax(0, 1fr); } }
+
+.page-input { width: 2.6rem; padding: .15rem .2rem; color: var(--ink); border: 1px solid var(--line); border-radius: 4px; background: white; text-align: center; font-size: .75rem; }

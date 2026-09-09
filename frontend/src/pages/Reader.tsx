@@ -86,6 +86,16 @@ export default function Reader() {
     if (!workspace || !q) return [];
     return workspace.document.blocks.filter((b) => b.source_text.toLowerCase().includes(q)).slice(0, 30);
   }, [workspace, search]);
+  const rememberPage = (next: number) => {
+    const safe = Math.max(1, Math.min(workspace?.document.page_count || 1, Math.round(next)));
+    setPage(safe);
+    const block = workspace?.document.blocks.find((item) => item.page === safe);
+    if (block) {
+      setWorkspace((old) => old ? { ...old, state: { ...old.state, block_id: block.id } } : old);
+      void api.patch(`/api/reading/${taskId}/state`, { block_id: block.id, offset: 0 }).catch(() => undefined);
+    }
+  };
+
   const setPosition = (block: Block) => {
     setPage(block.page); setSearch("");
     setWorkspace((old) => old ? { ...old, state: { ...old.state, block_id: block.id } } : old);
@@ -112,7 +122,7 @@ export default function Reader() {
   return <div className="reader-workspace">
     <header className="reader-topbar">
       <div className="reader-brand"><Button variant="ghost" size="icon" aria-label="返回文档库" onClick={() => navigate("/dashboard")}><ArrowLeft size={18} /></Button><div><p className="reader-kicker">连续阅读</p><h1 title={workspace.document.title}>{workspace.document.title}</h1></div></div>
-      <div className="reader-controls"><div className="mode-switch" role="group" aria-label="阅读版本"><BookOpen size={16} />{availableModes.map((item) => <button key={item.id} className={mode === item.id ? "active" : ""} onClick={() => { setMode(item.id); void api.patch(`/api/reading/${taskId}/state`, { mode: item.id }); }}>{item.label}</button>)}</div><span className="reader-page">第 {current?.page || page} / {workspace.document.page_count} 页</span><Button variant="outline" size="sm" onClick={() => setAskOpen((v) => !v)}><MessageCircleQuestion size={16} /><span className="desktop-label">全文提问</span></Button><Button variant="outline" size="sm" onClick={() => setOutlineOpen((v) => !v)}><Menu size={16} /><span className="desktop-label">目录</span></Button><Button variant="outline" size="sm" disabled={!hasTranslation} onClick={() => void download("mono")}><Download size={16} /><span className="desktop-label">下载译文</span></Button></div>
+      <div className="reader-controls"><div className="mode-switch" role="group" aria-label="阅读版本"><BookOpen size={16} />{availableModes.map((item) => <button key={item.id} className={mode === item.id ? "active" : ""} onClick={() => { setMode(item.id); void api.patch(`/api/reading/${taskId}/state`, { mode: item.id }); }}>{item.label}</button>)}</div><label className="reader-page">第 <input className="page-input" type="number" min="1" max={workspace.document.page_count} value={page} onChange={(e) => rememberPage(Number(e.target.value))} /> / {workspace.document.page_count} 页</label><Button variant="outline" size="sm" onClick={() => setAskOpen((v) => !v)}><MessageCircleQuestion size={16} /><span className="desktop-label">全文提问</span></Button><Button variant="outline" size="sm" onClick={() => setOutlineOpen((v) => !v)}><Menu size={16} /><span className="desktop-label">目录</span></Button><Button variant="outline" size="sm" disabled={!hasTranslation} onClick={() => void download("mono")}><Download size={16} /><span className="desktop-label">下载译文</span></Button></div>
     </header>
     {!hasTranslation && <div className="reader-status"><Loader2 className="spin" size={17} /><span>{workspace.pdf_message || "译文正在生成。你可以先阅读完整原文，完成后会自动出现译文。"}</span><strong>{workspace.pdf_status} {workspace.percent ? `${workspace.percent}%` : ""}</strong></div>}
     <div className={`reader-layout ${askOpen ? "ask-open" : ""}`}>
