@@ -40,7 +40,7 @@ export default function Reader() {
     let cancelled = false;
     api.get(`/api/reading/${taskId}`).then(({ data }) => {
       if (cancelled) return;
-      setWorkspace(data); setMode(data.state.mode || "chinese");
+      setWorkspace(data); setMode(data.state.mode === "simple" && data.task_mode !== "simplify" ? "chinese" : (data.state.mode || "chinese"));
       const current = data.document.blocks.find((b: Block) => b.id === data.state.block_id);
       setPage(current?.page || 1);
     }).catch((err) => !cancelled && setError(getApiErrorMessage(err, "无法打开论文")));
