@@ -1,4 +1,5 @@
 """Authenticated reading workspace; model work is explicit and cached."""
+
 from __future__ import annotations
 
 import asyncio
@@ -33,6 +34,11 @@ class StatePatch(BaseModel):
 
 
 class ExplainRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    selection: str = Field(default="", max_length=8000)
+
+
+class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     selection: str = Field(default="", max_length=8000)
 
@@ -85,7 +91,9 @@ def create_reading_router(service) -> APIRouter:
         if body.block_id and body.block_id not in ids or body.understood and not set(body.understood).issubset(ids):
             raise HTTPException(422, "阅读位置不属于这篇论文。")
         with Session(service.engine) as session:
-            state = session.get(ReadingState, f"{user.id}:{task_id}") or ReadingState(id=f"{user.id}:{task_id}", user_id=user.id, task_id=task_id)
+            state = session.get(ReadingState, f"{user.id}:{task_id}") or ReadingState(
+                id=f"{user.id}:{task_id}", user_id=user.id, task_id=task_id
+            )
             for key, value in body.model_dump(exclude_none=True).items():
                 if key in {"understood", "bookmarked_terms"}:
                     setattr(state, f"{key}_json", json.dumps(list(dict.fromkeys(value)), ensure_ascii=False))
@@ -109,6 +117,11 @@ def create_reading_router(service) -> APIRouter:
         document, block = await block_for(task, block_id)
         return await model_result(service.explain(task, block, document, body.question, body.selection))
 
+    @router.post("/{task_id}/ask")
+    async def ask(task_id: str, body: AskRequest, user: User = Depends(get_current_user)):
+        task = owned(task_id, user)
+        return await model_result(service.ask(task, await document_for(task), body.question, body.selection))
+
     @router.get("/{task_id}/blocks/{block_id}/source")
     async def source(task_id: str, block_id: str, full_page: bool = False, user: User = Depends(get_current_user)):
         task = owned(task_id, user)
@@ -127,6 +140,10 @@ def create_reading_router(service) -> APIRouter:
     async def export_reading(task_id: str, user: User = Depends(get_current_user)):
         task = owned(task_id, user)
         result = await service.workspace(task, user.id)
-        return Response(json.dumps(result, ensure_ascii=False, indent=2), media_type="application/json", headers={"Content-Disposition": 'attachment; filename="paper-reading.json"'})
+        return Response(
+            json.dumps(result, ensure_ascii=False, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": 'attachment; filename="paper-reading.json"'},
+        )
 
     return router

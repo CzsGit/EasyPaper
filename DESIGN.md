@@ -2,11 +2,11 @@
 
 ## Direction
 
-Mode: Read. A quiet editorial reading desk: warm paper, dark ink, restrained green navigation, generous text leading. The text occupies the largest surface. Source verification and assistance stay in a contextual drawer. No marketing hero in the signed-in library.
+Mode: Read. A quiet document desk: warm paper, dark ink, restrained green navigation. The complete PDF page stream occupies the largest surface. Assistance stays in an optional drawer. Generated paragraph cards never replace the paper.
 
 ## First viewport
 
-A compact top navigation, a persistent paper outline, and the actual title and opening paragraphs. Language controls and current reading position are visible. The signature interaction is switching language or opening a source/explanation without losing the active paragraph.
+A compact top navigation, a persistent paper outline, and the actual complete paper page. Language controls and current page are visible. The signature interaction is switching original, translated, or bilingual page streams without losing the active page; full-paper questions are explicit and on demand.
 
 ## Typography and layout
 
@@ -18,4 +18,4 @@ Paper #faf9f6; surface #ffffff; ink #242b27; muted #626a65; border #dedfd7; acce
 
 ## States
 
-The original is readable before language aids finish. Pending translations show explicit progress; failed requests offer retry beside the affected paragraph. Missing text or uncertain layout shows the original page. Reading position and user-understood status are separate. Existing export and study functions remain accessible from the workspace.
+The original is readable before translation finishes. Pending translation shows one clear document-level progress message. The reader never fills the page with generated placeholders. Search and outline use extracted structure, while the visible reading surface remains the original PDF or generated full-page PDF. Existing export and study functions remain accessible from the workspace.
