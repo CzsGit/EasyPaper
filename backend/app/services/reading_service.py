@@ -91,6 +91,7 @@ class ReadingService:
             highlight_stats, highlight_sentences = None, []
         return {
             "task_id": task.task_id,
+            "task_mode": task.mode,
             "paper_id": paper.id,
             "document": document,
             "knowledge_status": paper.extraction_status,

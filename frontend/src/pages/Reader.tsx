@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 type Mode = "chinese" | "simple" | "original" | "bilingual";
 type Block = { id: string; page: number; type: string; source_text: string; index: number };
 type Section = { id: string; title: string; block_id: string; page: number };
-type Workspace = { task_id: string; paper_id: string; document: { title: string; page_count: number; blocks: Block[]; sections: Section[]; warnings: string[] }; state: { block_id: string; offset: number; mode: Mode; font_size: number }; pdf_status: string; pdf_message: string; percent?: number; has_result: boolean; has_dual: boolean };
+type Workspace = { task_id: string; task_mode?: string; paper_id: string; document: { title: string; page_count: number; blocks: Block[]; sections: Section[]; warnings: string[] }; state: { block_id: string; offset: number; mode: Mode; font_size: number }; pdf_status: string; pdf_message: string; percent?: number; has_result: boolean; has_dual: boolean };
 
 const modes: { id: Mode; label: string; hint: string }[] = [
   { id: "chinese", label: "中文译文", hint: "完整译文" },
@@ -99,10 +99,11 @@ export default function Reader() {
   const current = workspace.document.blocks.find((b) => b.id === workspace.state.block_id);
   const visibleSections = workspace.document.sections.filter((s, i) => i === 0 || /^(?:[1-9](?:\.\d+)*|[A-Z])\s/.test(s.title) || s.title === "References");
   const hasTranslation = workspace.has_result;
+  const availableModes = modes.filter((item) => item.id !== "simple" || workspace.task_mode === "simplify");
   return <div className="reader-workspace">
     <header className="reader-topbar">
       <div className="reader-brand"><Button variant="ghost" size="icon" aria-label="返回文档库" onClick={() => navigate("/dashboard")}><ArrowLeft size={18} /></Button><div><p className="reader-kicker">连续阅读</p><h1 title={workspace.document.title}>{workspace.document.title}</h1></div></div>
-      <div className="reader-controls"><div className="mode-switch" role="group" aria-label="阅读版本"><BookOpen size={16} />{modes.map((item) => <button key={item.id} className={mode === item.id ? "active" : ""} onClick={() => { setMode(item.id); void api.patch(`/api/reading/${taskId}/state`, { mode: item.id }); }}>{item.label}</button>)}</div><span className="reader-page">第 {current?.page || page} / {workspace.document.page_count} 页</span><Button variant="outline" size="sm" onClick={() => setAskOpen((v) => !v)}><MessageCircleQuestion size={16} /><span className="desktop-label">全文提问</span></Button><Button variant="outline" size="sm" onClick={() => setOutlineOpen((v) => !v)}><Menu size={16} /><span className="desktop-label">目录</span></Button><Button variant="outline" size="sm" disabled={!hasTranslation} onClick={() => void download("mono")}><Download size={16} /><span className="desktop-label">下载译文</span></Button></div>
+      <div className="reader-controls"><div className="mode-switch" role="group" aria-label="阅读版本"><BookOpen size={16} />{availableModes.map((item) => <button key={item.id} className={mode === item.id ? "active" : ""} onClick={() => { setMode(item.id); void api.patch(`/api/reading/${taskId}/state`, { mode: item.id }); }}>{item.label}</button>)}</div><span className="reader-page">第 {current?.page || page} / {workspace.document.page_count} 页</span><Button variant="outline" size="sm" onClick={() => setAskOpen((v) => !v)}><MessageCircleQuestion size={16} /><span className="desktop-label">全文提问</span></Button><Button variant="outline" size="sm" onClick={() => setOutlineOpen((v) => !v)}><Menu size={16} /><span className="desktop-label">目录</span></Button><Button variant="outline" size="sm" disabled={!hasTranslation} onClick={() => void download("mono")}><Download size={16} /><span className="desktop-label">下载译文</span></Button></div>
     </header>
     {!hasTranslation && <div className="reader-status"><Loader2 className="spin" size={17} /><span>{workspace.pdf_message || "译文正在生成。你可以先阅读完整原文，完成后会自动出现译文。"}</span><strong>{workspace.pdf_status} {workspace.percent ? `${workspace.percent}%` : ""}</strong></div>}
     <div className="reader-layout">
