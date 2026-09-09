@@ -7,6 +7,8 @@ from sqlmodel import SQLModel
 from app.core.config import get_config
 from app.models.user import User  # noqa: F401
 from app.models.task import Task  # noqa: F401
+from app.models import knowledge as _knowledge  # noqa: F401
+from app.models import reading as _reading  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

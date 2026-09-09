@@ -1,8 +1,17 @@
 llm:
+  # api: OpenAI-compatible HTTP service; codex: local Codex CLI / ChatGPT login.
+  # EASYPAPER_AI_PROVIDER overrides this value. Restart the backend after switching.
+  provider: "api"
   api_key: "YOUR_API_KEY"
   base_url: "https://openrouter.ai/api/v1"
   model: "gemini-2.5-flash"
   judge_model: "gemini-2.5-flash"
+  codex:
+    executable: "codex" # Or the absolute path returned by `command -v codex`.
+    model: "" # Empty uses the installed CLI default, independent of llm.model.
+    reasoning_effort: "low"
+    timeout_seconds: 180
+    max_concurrent: 2
 processing:
   max_pages: 100
   max_upload_mb: 50

@@ -7,7 +7,9 @@ import json
 import logging
 
 import fitz
-import httpx
+
+from ..core.config import LLMConfig
+from .ai_client import AIClient, AIError
 
 logger = logging.getLogger(__name__)
 
@@ -58,20 +60,17 @@ SUMMARY_SYSTEM_PROMPT = (
 class PaperSummarizer:
     """Generates a structured visual summary of an academic paper."""
 
-    def __init__(self, api_key: str, model: str, base_url: str) -> None:
+    def __init__(self, api_key: str, model: str, base_url: str, ai_client: AIClient | None = None) -> None:
         self.api_key = api_key
         self.model = model
         self.base_url = base_url
+        self.ai = ai_client or AIClient(LLMConfig(api_key=api_key, model=model, base_url=base_url))
 
     async def summarize(self, pdf_bytes: bytes) -> dict:
         pages_text = self._extract_text(pdf_bytes)
         context = self._build_context(pages_text)
 
-        async with httpx.AsyncClient(
-            base_url=self.base_url,
-            timeout=httpx.Timeout(120.0, connect=10.0),
-        ) as client:
-            return await self._call_llm(client, context)
+        return await self._call_llm(context)
 
     def _extract_text(self, pdf_bytes: bytes) -> list[str]:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -101,42 +100,15 @@ class PaperSummarizer:
 
         return full[:head_budget] + "\n\n[...middle sections omitted for brevity...]\n\n" + full[-tail_budget:]
 
-    async def _call_llm(self, client: httpx.AsyncClient, text: str) -> dict:
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
-                {"role": "user", "content": f"Paper text:\n\n{text}"},
-            ],
-            "temperature": 0.1,
-            "max_tokens": 4096,
-        }
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        max_retries = 3
-        for attempt in range(max_retries):
+    async def _call_llm(self, text: str) -> dict:
+        for attempt in range(3):
             try:
-                response = await client.post("/chat/completions", json=payload, headers=headers)
-                response.raise_for_status()
-                data = response.json()
-                content = data["choices"][0]["message"]["content"].strip()
-                return self._parse_json(content)
-            except Exception as exc:
-                if attempt == max_retries - 1:
-                    logger.error(
-                        "Summary generation failed after %d retries: %s",
-                        max_retries,
-                        exc,
-                    )
+                return await self.ai.complete_json(SUMMARY_SYSTEM_PROMPT, f"Paper text:\n\n{text}", max_tokens=4096)
+            except AIError as exc:
+                if self.ai.config.provider == "codex" or not exc.retryable or attempt == 2:
                     raise
-                delay = 2 * (2**attempt)
-                logger.warning("Summary LLM error: %s, retrying in %ds...", exc, delay)
-                await asyncio.sleep(delay)
-
-        return {}
+                await asyncio.sleep(2 * (2**attempt))
+        raise AIError("摘要生成失败。")
 
     def _parse_json(self, content: str) -> dict:
         if content.startswith("```"):

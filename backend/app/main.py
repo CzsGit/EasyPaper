@@ -17,13 +17,16 @@ from .api.agent_deps import MCPAuthMiddleware
 from .api.agent_routes import create_agent_router
 from .api.auth import router as auth_router
 from .api.knowledge_routes import create_knowledge_router
+from .api.reading_routes import create_reading_router
 from .api.routes import create_router
 from .core.config import get_config
 from .core.db import engine, init_db
 from .core.logger import setup_logging
 from .mcp.server import create_mcp_server
+from .services.ai_client import AIClient
 from .services.document_processor import DocumentProcessor
 from .services.knowledge_extractor import KnowledgeExtractor
+from .services.reading_service import ReadingService
 from .services.task_manager import TaskManager
 from .services.translation_artifact_service import TranslationArtifactService
 from .services.translation_draft_service import TranslationDraftService
@@ -33,12 +36,14 @@ logger = logging.getLogger(__name__)
 
 setup_logging()
 config = get_config()
+ai_client = AIClient(config.llm)
 task_manager = TaskManager(ttl_minutes=config.storage.cleanup_minutes)
-processor = DocumentProcessor(config=config, task_manager=task_manager)
+processor = DocumentProcessor(config=config, task_manager=task_manager, ai_client=ai_client)
 knowledge_extractor = KnowledgeExtractor(
     api_key=config.llm.api_key,
     model=config.llm.model,
     base_url=config.llm.base_url,
+    ai_client=ai_client,
 )
 draft_service = TranslationDraftService(
     session_factory=lambda: Session(engine),
@@ -48,6 +53,7 @@ draft_service = TranslationDraftService(
 execution_service = TranslationExecutionService(
     task_manager=task_manager, processor=processor, draft_service=draft_service
 )
+reading_service = ReadingService(config, engine, ai_client=ai_client)
 artifact_service = TranslationArtifactService(task_manager=task_manager)
 mcp_server = create_mcp_server(
     draft_service=draft_service,
@@ -87,8 +93,9 @@ app.include_router(
         artifact_service=artifact_service,
     )
 )
-app.include_router(create_router(task_manager, processor))
+app.include_router(create_router(task_manager, processor, reading_service))
 app.include_router(create_knowledge_router(knowledge_extractor))
+app.include_router(create_reading_router(reading_service))
 app.router.routes.extend(mcp_server.streamable_http_app().routes)
 
 

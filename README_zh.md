@@ -4,6 +4,10 @@
 
 EasyPaper 是一个可本地部署的 Web 应用，帮助你阅读、理解并留住英文学术论文中的知识。上传一个 PDF 或粘贴论文链接 — 获取翻译或简化版本（排版完整保留）、AI 重点高亮，以及可导出到任何平台的便携知识库。
 
+### AI 执行方式
+
+后端支持两种可切换的 AI 执行方式：默认的 OpenAI 兼容 HTTP 接口，以及使用本机 ChatGPT 登录态的 Codex CLI。要使用 Codex，先在运行后端的同一账户执行 `codex login`，然后在 `backend/config/config.yaml` 设置 `llm.provider: "codex"`，或启动前设置 `EASYPAPER_AI_PROVIDER=codex`。重启后，阅读辅助、知识提取、摘要、高亮和 PDF 翻译都会通过受限的 `codex exec --ephemeral --sandbox read-only` 执行，不需要填写 API Key；Codex 不可用时任务会明确失败并可重试，不会静默切换成低质量规则结果。
+
 [English](README.md)
 
 ---
@@ -137,10 +141,15 @@ npm run dev
 
 ```yaml
 llm:
-  api_key: "YOUR_API_KEY"             # 必填 — 任意 OpenAI 兼容 API
+  provider: "api"                     # "api" 或 "codex"
+  api_key: "YOUR_API_KEY"             # provider=api 时填写；Codex 模式不需要
   base_url: "https://api.example.com/v1"
   model: "gemini-2.5-flash"           # 翻译/简化/知识提取使用的模型
   judge_model: "gemini-2.5-flash"
+  codex:
+    executable: "codex"
+    model: ""                          # 空值使用本机 Codex 默认模型
+    reasoning_effort: "low"
 
 processing:
   max_pages: 100

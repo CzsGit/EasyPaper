@@ -1,6 +1,17 @@
-# Config with secrets
-backend/config/config.yaml
+# Local configuration and credentials — keep only the checked-in examples.
+backend/config/*.yaml
+!backend/config/config.example.yaml
 .env
+.env.*
+!.env.example
+.codex/
+**/.codex/
+.codez/
+**/.codez/
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Python
 __pycache__/
@@ -15,6 +26,8 @@ frontend/dist/
 
 # Database
 *.db
+*.sqlite
+*.sqlite3
 
 # Temp files & logs
 backend/tmp/

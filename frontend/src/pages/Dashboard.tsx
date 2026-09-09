@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Upload, FileText, ArrowRight, Clock, CheckCircle, AlertCircle, Languages, BookOpen, Trash2, Search, Highlighter, Brain, Link, Sparkles } from "lucide-react";
+import { Upload, FileText, ArrowRight, Clock, CheckCircle, AlertCircle, Languages, BookOpen, Trash2, Search, Highlighter, Brain, Link, Sparkles, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -19,12 +19,14 @@ const ACTIVE_TASK_STATUSES = new Set(["pending", "processing", "parsing", "rewri
 interface Task {
     task_id: string;
     filename: string;
-    status: "pending" | "processing" | "parsing" | "rewriting" | "rendering" | "highlighting" | "completed" | "failed" | "error";
+    status: "pending" | "processing" | "parsing" | "rewriting" | "rendering" | "highlighting" | "completed" | "failed" | "error" | "cancelled";
     created_at: string;
     percent?: number;
     message?: string;
     mode?: "translate" | "simplify";
     highlight?: boolean;
+    can_read?: boolean;
+    reading?: { block_id: string; understood_count: number; updated_at: string };
 }
 
 const Dashboard = () => {
@@ -134,6 +136,7 @@ const Dashboard = () => {
     };
 
     const handleDelete = async (taskId: string) => {
+        if (!window.confirm("删除后会移除这篇论文的阅读文件和任务记录，知识库导出内容也可能受影响。确定删除吗？")) return;
         try {
             await api.delete(`/api/tasks/${taskId}`);
             setTasks((prev) => prev.filter((t) => t.task_id !== taskId));
@@ -184,6 +187,7 @@ const Dashboard = () => {
             case "failed":
             case "error":
                 return "text-red-600 bg-red-50 border-red-200";
+            case "cancelled": return "text-gray-600 bg-gray-100 border-gray-200";
             default: return "text-gray-600 bg-gray-50 border-gray-200";
         }
     };
@@ -200,6 +204,7 @@ const Dashboard = () => {
             case "failed":
             case "error":
                 return <AlertCircle className="h-4 w-4" />;
+            case "cancelled": return <X className="h-4 w-4" />;
             default: return <Clock className="h-4 w-4" />;
         }
     };
@@ -216,6 +221,7 @@ const Dashboard = () => {
             case "failed":
             case "error":
                 return "失败";
+            case "cancelled": return "已取消";
             default: return status;
         }
     };
@@ -431,6 +437,7 @@ const Dashboard = () => {
                                             variant="ghost"
                                             size="icon"
                                             className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-600"
+                                            aria-label={`删除 ${task.filename}`}
                                             onClick={() => handleDelete(task.task_id)}
                                         >
                                             <Trash2 className="h-3.5 w-3.5" />
@@ -458,7 +465,7 @@ const Dashboard = () => {
                                                 variant="outline"
                                                 onClick={() => navigate(`/reader/${task.task_id}`)}
                                             >
-                                                阅读
+                                                {task.reading?.block_id ? `继续阅读（已读 ${task.reading.understood_count} 段）` : "开始阅读"}
                                                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                                             </Button>
                                             <Button
@@ -466,11 +473,8 @@ const Dashboard = () => {
                                                 size="icon"
                                                 className="shrink-0 text-amber-600 hover:bg-amber-50 hover:text-amber-700 border-amber-200"
                                                 title="论文摘要"
-                                                onClick={() =>
-                                                    navigate(`/summary/${task.task_id}`, {
-                                                        state: { filename: task.filename },
-                                                    })
-                                                }
+                                                aria-label="打开论文地图"
+                                                onClick={() => navigate(`/reader/${task.task_id}?panel=summary`)}
                                             >
                                                 <Sparkles className="h-4 w-4" />
                                             </Button>
@@ -479,6 +483,7 @@ const Dashboard = () => {
                                                 size="icon"
                                                 className="shrink-0 text-violet-600 hover:bg-violet-50 hover:text-violet-700 border-violet-200"
                                                 title="提取知识库"
+                                                aria-label="提取论文知识"
                                                 onClick={async (e) => {
                                                     e.stopPropagation();
                                                     try {
@@ -495,10 +500,12 @@ const Dashboard = () => {
                                     )}
 
                                     {(task.status === "failed" || task.status === "error") && (
-                                        <p className="text-xs text-red-500">
-                                            {task.message || "处理失败"}
-                                        </p>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="text-xs text-red-500">{task.message || "处理失败"}</p>
+                                            <Button size="sm" variant="outline" onClick={async () => { try { await api.post(`/api/tasks/${task.task_id}/retry`); fetchTasks(); } catch { toast.error("重试失败，原始文件可能已过期。"); } }}>重试</Button>
+                                        </div>
                                     )}
+                                    {task.status !== "completed" && task.status !== "error" && task.status !== "failed" && task.status !== "cancelled" && task.can_read && <Button size="sm" variant="outline" className="w-full" onClick={() => navigate(`/reader/${task.task_id}`)}>先阅读原文</Button>}
                                 </div>
                             </CardContent>
                         </Card>

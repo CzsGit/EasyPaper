@@ -9,9 +9,9 @@ import uuid
 from datetime import datetime
 
 import fitz
-import httpx
 from sqlmodel import Session
 
+from ..core.config import LLMConfig
 from ..core.db import engine
 from ..models.knowledge import (
     Flashcard,
@@ -19,6 +19,8 @@ from ..models.knowledge import (
     KnowledgeRelationship,
     PaperKnowledge,
 )
+from .ai_client import AIClient, AIError
+from .document_parser import parse_document, tagged_text, validate_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +79,8 @@ FINDINGS_PROMPT = (
     "数据集：记录名称、描述及使用方式\n\n"
     "所有描述性文本使用中文，专有名词保留英文。\n\n"
     "仅返回 JSON：\n"
-    '{"findings": [{"type": "result", "statement": "...", "evidence": "..."}], '
+    '每条 finding、method 和 dataset 增加 evidence_refs 字段，值只能是输入中的 block_id。\n'
+    '{"findings": [{"type": "result", "statement": "...", "evidence": "...", "evidence_refs": ["b_..."]}], '
     '"methods": [{"name": "...", "description": "...", "inputs": ["..."], "outputs": ["..."]}], '
     '"datasets": [{"name": "...", "description": "...", "usage": "evaluation"}]}\n'
 )
@@ -110,14 +113,12 @@ class KnowledgeExtractor:
         model: str,
         base_url: str,
         max_concurrent: int = 3,
+        ai_client: AIClient | None = None,
     ) -> None:
         self.api_key = api_key
-        self.model = model
+        self.ai = ai_client or AIClient(LLMConfig(api_key=api_key, model=model, base_url=base_url))
+        self.model = self.ai.model
         self.max_concurrent = max_concurrent
-        self._client = httpx.AsyncClient(
-            base_url=base_url,
-            timeout=httpx.Timeout(180.0, connect=10.0),
-        )
 
     # ------------------------------------------------------------------
     # 主入口
@@ -145,7 +146,14 @@ class KnowledgeExtractor:
         self._save_paper(paper)
 
         try:
-            knowledge = await self._run_pipeline(pdf_bytes, paper_id, user_id)
+            try:
+                reading_document = parse_document(pdf_bytes)
+            except Exception:
+                # OCR-only or malformed PDFs can still use the legacy text pipeline.
+                reading_document = None
+            knowledge = await self._run_pipeline(pdf_bytes, paper_id, user_id, reading_document)
+            if reading_document:
+                knowledge = validate_evidence(knowledge, reading_document["blocks"])
             paper.knowledge_json = json.dumps(knowledge, ensure_ascii=False)
             paper.title = knowledge.get("metadata", {}).get("title", "")
             paper.doi = knowledge.get("metadata", {}).get("doi")
@@ -165,21 +173,30 @@ class KnowledgeExtractor:
             self._save_paper(paper)
             raise
 
-    async def _run_pipeline(self, pdf_bytes: bytes, paper_id: str, user_id: int) -> dict:
+    async def _run_pipeline(self, pdf_bytes: bytes, paper_id: str, user_id: int, reading_document: dict | None = None) -> dict:
         """执行提取流水线的各阶段。"""
         # 1. 提取 PDF 全文
         pages_text = self._extract_text(pdf_bytes)
         full_text = "\n\n".join(pages_text)
+        if reading_document:
+            full_text = tagged_text(reading_document["blocks"])
 
         # 2. 提取 metadata（前2页）
         first_pages = "\n\n".join(pages_text[:2])
         metadata = await self._llm_call(METADATA_PROMPT, first_pages, "metadata")
 
         # 3. 识别 section 结构
-        sections_data = await self._llm_call(SECTIONS_PROMPT, full_text[:8000], "sections")
+        sections_data = await self._llm_call(SECTIONS_PROMPT, full_text[:20000], "sections")
         sections = sections_data.get("sections", [])
-        for i, sec in enumerate(sections):
-            sec["id"] = f"sec_{i + 1}"
+        if reading_document and reading_document.get("sections"):
+            summaries = {str(sec.get("title", "")).lower(): sec.get("summary", "") for sec in sections}
+            sections = [
+                {"id": sec["id"], "title": sec["title"], "level": 1, "page": sec["page"], "block_id": sec["block_id"], "summary": summaries.get(sec["title"].lower(), "")}
+                for sec in reading_document["sections"]
+            ]
+        else:
+            for i, sec in enumerate(sections):
+                sec["id"] = f"sec_{i + 1}"
 
         # 4. 并发提取实体和关系（按 section 分块）。遍历全部 chunk，确保整篇正文
         # 都参与抽取——不要再与 sections 做 zip（会截断丢文本）。
@@ -227,7 +244,7 @@ class KnowledgeExtractor:
         relationships = [r for r in all_relationships if r.get("source_entity_id") and r.get("target_entity_id")]
 
         # 5. 提取 findings + methods + datasets
-        findings_data = await self._llm_call(FINDINGS_PROMPT, full_text[:8000], "findings")
+        findings_data = await self._llm_call(FINDINGS_PROMPT, full_text[:20000], "findings")
         findings = findings_data.get("findings", [])
         for _i, f in enumerate(findings):
             f["id"] = _gen_id("find")
@@ -302,6 +319,8 @@ class KnowledgeExtractor:
             try:
                 return await self._do_llm_call(system_prompt, user_content)
             except Exception as exc:
+                if isinstance(exc, AIError) and (self.ai.config.provider == "codex" or not exc.retryable):
+                    raise
                 if attempt == max_retries - 1:
                     logger.error("LLM call [%s] failed after %d retries: %s", label, max_retries, exc)
                     return {}
@@ -312,40 +331,7 @@ class KnowledgeExtractor:
 
     async def _do_llm_call(self, system_prompt: str, user_content: str) -> dict:
         """执行 LLM API 调用并解析 JSON 响应。"""
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            "temperature": 0.1,
-            "max_tokens": 4096,
-        }
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        response = await self._client.post("/chat/completions", json=payload, headers=headers)
-        response.raise_for_status()
-        data = response.json()
-        content = data["choices"][0]["message"]["content"].strip()
-
-        # 去除 markdown 代码围栏
-        if content.startswith("```"):
-            lines = content.split("\n")
-            start_idx = 1 if lines[0].startswith("```") else 0
-            end_idx = -1 if lines[-1].strip() == "```" else len(lines)
-            content = "\n".join(lines[start_idx:end_idx])
-
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            start = content.find("{")
-            end = content.rfind("}")
-            if start != -1 and end != -1:
-                return json.loads(content[start : end + 1])
-            raise
+        return await self.ai.complete_json(system_prompt, user_content, max_tokens=4096)
 
     # ------------------------------------------------------------------
     # 实体去重
@@ -480,7 +466,7 @@ class KnowledgeExtractor:
     # ------------------------------------------------------------------
 
     async def close(self) -> None:
-        await self._client.aclose()
+        await self.ai.aclose()
 
     async def __aenter__(self) -> KnowledgeExtractor:
         return self

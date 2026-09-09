@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, create_engine
 

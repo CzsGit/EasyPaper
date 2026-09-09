@@ -176,8 +176,8 @@ def create_knowledge_router(extractor: KnowledgeExtractor) -> APIRouter:
             raise HTTPException(status_code=404, detail="任务不存在")
         if task.user_id != user.id:
             raise HTTPException(status_code=403, detail="无权访问此任务")
-        if task.status != TaskStatus.COMPLETED:
-            raise HTTPException(status_code=400, detail="任务尚未完成，无法提取知识")
+        if task.status not in {TaskStatus.COMPLETED, TaskStatus.CANCELLED}:
+            raise HTTPException(status_code=400, detail="论文仍在处理，暂时无法提取知识")
 
         # 检查是否已提取
         with Session(engine) as session:
@@ -287,6 +287,7 @@ def create_knowledge_router(extractor: KnowledgeExtractor) -> APIRouter:
                 ).all()
                 data["flashcards"] = [_flashcard_to_dict(card) for card in cards]
                 data["annotations"] = [_annotation_to_dict(annotation) for annotation in annotations]
+                data["task_id"] = paper.task_id
                 return data
             return {"id": paper.id, "title": paper.title, "extraction_status": paper.extraction_status}
 

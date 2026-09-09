@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 
 from ..core.config import get_config
 from ..core.db import engine
+from ..models.reading import ReadingAid, ReadingDocument, ReadingState
 from ..models.task import Task, TaskResult, TaskStatus
 
 
@@ -46,7 +47,7 @@ class TaskManager:
     ) -> None:
         with Session(engine) as session:
             task = session.get(Task, task_id)
-            if not task:
+            if not task or task.status == TaskStatus.CANCELLED:
                 return
             task.status = status
             task.percent = percent
@@ -54,6 +55,24 @@ class TaskManager:
             task.error = error
             session.add(task)
             session.commit()
+
+    def reading_overview(self, user_id: int) -> dict:
+        import json
+
+        with Session(engine) as session:
+            states = session.exec(select(ReadingState).where(ReadingState.user_id == user_id)).all()
+            return {state.task_id: {"block_id": state.block_id, "understood_count": len(json.loads(state.understood_json)), "updated_at": state.updated_at.isoformat()} for state in states}
+
+    def requeue(self, task_id: str) -> None:
+        with Session(engine) as session:
+            task = session.get(Task, task_id)
+            if task:
+                task.status = TaskStatus.PENDING
+                task.error = None
+                task.percent = 0
+                task.message = "已重新排队"
+                session.add(task)
+                session.commit()
 
     def update_original_path(self, task_id: str, path: str) -> None:
         with Session(engine) as session:
@@ -67,7 +86,7 @@ class TaskManager:
     def set_result(self, task_id: str, result: TaskResult) -> None:
         with Session(engine) as session:
             task = session.get(Task, task_id)
-            if not task:
+            if not task or task.status == TaskStatus.CANCELLED:
                 return
 
             # Save PDF to disk
@@ -121,7 +140,7 @@ class TaskManager:
     def set_error(self, task_id: str, message: str) -> None:
         with Session(engine) as session:
             task = session.get(Task, task_id)
-            if not task:
+            if not task or task.status == TaskStatus.CANCELLED:
                 return
             task.status = TaskStatus.ERROR
             task.error = message
@@ -149,6 +168,9 @@ class TaskManager:
                     Path(task.original_pdf_path).unlink(missing_ok=True)
                 except Exception:
                     pass
+            for model in (ReadingAid, ReadingState, ReadingDocument):
+                for row in session.exec(select(model).where(model.task_id == task_id)).all():
+                    session.delete(row)
             session.delete(task)
             session.commit()
 
@@ -170,7 +192,17 @@ class TaskManager:
         with Session(engine) as session:
             tasks = session.exec(select(Task).where(Task.status.in_(_non_terminal))).all()
             for task in tasks:
-                for path in (task.original_pdf_path, task.result_pdf_path, task.result_dual_pdf_path):
+                # Preserve user-owned sources so interrupted exports can be retried
+                # and the reading workspace remains usable after a restart.
+                # A normal user upload lives in the configured library directory
+                # and is retained for the reader. Test/legacy paths outside it
+                # are temporary and retain the old cleanup behaviour.
+                library_root = Path(self.config.storage.temp_dir).resolve()
+                paths = tuple(
+                    path for path in (task.original_pdf_path, task.result_pdf_path, task.result_dual_pdf_path)
+                    if task.user_id is None or not path or library_root not in Path(path).resolve().parents
+                )
+                for path in paths:
                     if path:
                         try:
                             Path(path).unlink(missing_ok=True)
@@ -185,11 +217,12 @@ class TaskManager:
 
     def cleanup(self) -> None:
         cutoff = datetime.utcnow() - self._ttl
-        _terminal = [TaskStatus.COMPLETED, TaskStatus.ERROR]
+        _terminal = [TaskStatus.COMPLETED, TaskStatus.ERROR, TaskStatus.CANCELLED]
         with Session(engine) as session:
             statement = select(Task).where(
                 Task.created_at < cutoff,
                 Task.status.in_(_terminal),
+                Task.user_id.is_(None),
             )
             expired_tasks = session.exec(statement).all()
 

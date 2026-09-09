@@ -1,4 +1,4 @@
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -13,6 +13,8 @@ import { LogOut, User as UserIcon, FileText, Brain } from "lucide-react";
 
 const Layout = () => {
     const navigate = useNavigate();
+    const location = useLocation();
+    const isReader = location.pathname.startsWith("/reader/");
     const userEmail = localStorage.getItem("email") || "用户";
 
     const handleLogout = () => {
@@ -24,7 +26,7 @@ const Layout = () => {
     return (
         <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
             {/* Header */}
-            <header className="sticky top-0 z-50 w-full border-b bg-white/80 backdrop-blur-md supports-[backdrop-filter]:bg-white/60">
+            {!isReader && <header className="sticky top-0 z-50 w-full border-b bg-white/80 backdrop-blur-md supports-[backdrop-filter]:bg-white/60">
                 <div className="container mx-auto flex h-16 items-center justify-between px-4">
                     <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate("/dashboard")}>
                         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -72,10 +74,10 @@ const Layout = () => {
                         </DropdownMenu>
                     </div>
                 </div>
-            </header>
+            </header>}
 
             {/* Main Content */}
-            <main className="container mx-auto py-6 px-4">
+            <main className={location.pathname.startsWith("/reader/") ? "reader-main" : "container mx-auto py-6 px-4"}>
                 <Outlet />
             </main>
         </div>

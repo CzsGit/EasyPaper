@@ -11,7 +11,9 @@ from dataclasses import dataclass
 from itertools import groupby
 
 import fitz
-import httpx
+
+from ..core.config import LLMConfig
+from .ai_client import AIClient, AIError
 
 logger = logging.getLogger(__name__)
 
@@ -148,14 +150,12 @@ class HighlightService:
         model: str,
         base_url: str = "https://api.zhizengzeng.com/v1",
         max_concurrent_pages: int = 4,
+        ai_client: AIClient | None = None,
     ) -> None:
         self.api_key = api_key
-        self.model = model
+        self.ai = ai_client or AIClient(LLMConfig(api_key=api_key, model=model, base_url=base_url))
+        self.model = self.ai.model
         self.max_concurrent_pages = max_concurrent_pages
-        self._client = httpx.AsyncClient(
-            base_url=base_url,
-            timeout=httpx.Timeout(120.0, connect=10.0),
-        )
 
     async def highlight_pdf(self, pdf_bytes: bytes) -> tuple[bytes, HighlightStats]:
         """主入口：提取候选句 → LLM 分类 sentence_id → 添加注释 → 返回高亮后的 PDF"""
@@ -381,6 +381,8 @@ class HighlightService:
             try:
                 return await self._do_classify_candidates(candidates)
             except Exception as exc:
+                if isinstance(exc, AIError) and (self.ai.config.provider == "codex" or not exc.retryable):
+                    raise
                 if attempt == max_retries - 1:
                     logger.error("Candidate classification failed: %s", exc)
                     return []
@@ -390,39 +392,14 @@ class HighlightService:
         return []
 
     async def _do_classify_candidates(self, candidates: list[HighlightCandidate]) -> list[HighlightSelection]:
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": HIGHLIGHT_SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": "Sentence candidates:\n\n"
-                    + json.dumps(
-                        [
-                            {
-                                "sentence_id": candidate.sentence_id,
-                                "page": candidate.page_index + 1,
-                                "text": candidate.text[:800],
-                            }
-                            for candidate in candidates
-                        ],
-                        ensure_ascii=False,
-                    ),
-                },
-            ],
-            "temperature": 0.1,
-            "max_tokens": 2048,
-            "response_format": {"type": "json_object"},
-        }
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        response = await self._post_chat_completion(payload, headers)
-        data = response.json()
-        content = data["choices"][0]["message"]["content"].strip()
-        parsed = self._parse_json_object(content)
+        parsed = await self.ai.complete_json(
+            HIGHLIGHT_SYSTEM_PROMPT,
+            "Sentence candidates:\n\n" + json.dumps([
+                {"sentence_id": candidate.sentence_id, "page": candidate.page_index + 1, "text": candidate.text[:800]}
+                for candidate in candidates
+            ], ensure_ascii=False),
+            max_tokens=2048,
+        )
 
         selections = []
         for item in parsed.get("highlights", []):
@@ -431,20 +408,6 @@ class HighlightService:
             if sentence_id and category in HIGHLIGHT_COLORS:
                 selections.append(HighlightSelection(sentence_id=sentence_id, category=category))
         return selections
-
-    async def _post_chat_completion(self, payload: dict, headers: dict) -> httpx.Response:
-        try:
-            response = await self._client.post("/chat/completions", json=payload, headers=headers)
-            response.raise_for_status()
-            return response
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 400 and "response_format" in payload:
-                fallback_payload = dict(payload)
-                fallback_payload.pop("response_format", None)
-                response = await self._client.post("/chat/completions", json=fallback_payload, headers=headers)
-                response.raise_for_status()
-                return response
-            raise
 
     def _parse_json_object(self, content: str) -> dict:
         # Strip markdown code fences
@@ -512,7 +475,7 @@ class HighlightService:
         stats.total += 1
 
     async def close(self) -> None:
-        await self._client.aclose()
+        await self.ai.aclose()
 
     async def __aenter__(self) -> HighlightService:
         return self

@@ -14,6 +14,7 @@ class TaskStatus(StrEnum):
     HIGHLIGHTING = "highlighting"
     COMPLETED = "completed"
     ERROR = "error"
+    CANCELLED = "cancelled"
 
 
 class TaskProgress(SQLModel):

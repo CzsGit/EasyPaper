@@ -25,6 +25,7 @@ import { getApiErrorMessage } from "@/lib/errors";
 
 interface PaperKnowledge {
     id: string;
+    task_id?: string | null;
     metadata: {
         title: string;
         authors: { name: string; affiliation?: string }[];
@@ -44,12 +45,12 @@ interface PaperKnowledge {
         source?: string;
         target?: string;
     }[];
-    findings: { id: string; type: string; statement: string; evidence?: string }[];
+    findings: { id: string; type: string; statement: string; evidence?: string; evidence_refs?: { block_id: string; page: number }[] }[];
     methods: { name: string; description: string }[];
     datasets: { name: string; description: string; usage?: string }[];
     flashcards: { id: string; front: string; back: string; tags: string[]; difficulty: number }[];
     annotations: { id: string; type: string; content: string; created_at?: string }[];
-    structure?: { sections: { id: string; title: string; level: number; summary?: string }[] };
+    structure?: { sections: { id: string; title: string; level?: number; page?: number; block_id?: string; summary?: string }[] };
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -151,6 +152,17 @@ const PaperDetail = () => {
         );
     }
 
+    if (!paper.metadata) {
+        return (
+            <div className="flex min-h-[calc(100vh-8rem)] flex-col items-center justify-center gap-4 text-center">
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                <h1 className="text-xl font-semibold">知识正在整理</h1>
+                <p className="max-w-md text-sm text-muted-foreground">论文原文已经可以阅读。实体、发现、闪卡和关系会在后台生成，完成后自动补齐来源。</p>
+                {paper.task_id && <Button onClick={() => navigate(`/reader/${paper.task_id}`)}><BookOpenCheck className="mr-2 h-4 w-4" />继续阅读</Button>}
+            </div>
+        );
+    }
+
     const { metadata, entities, relationships, findings, methods, datasets, flashcards, annotations } = paper;
 
     // Build entity name map for relationship display
@@ -185,6 +197,7 @@ const PaperDetail = () => {
                     )}
                 </div>
                 <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                    {paper.task_id && <Button variant="default" size="sm" className="gap-2" onClick={() => navigate(`/reader/${paper.task_id}`)}><BookOpenCheck className="h-4 w-4" />继续阅读</Button>}
                     <Button
                         variant="outline"
                         size="sm"
@@ -216,6 +229,15 @@ const PaperDetail = () => {
                         <p className="text-sm leading-relaxed">{metadata.abstract}</p>
                     </CardContent>
                 </Card>
+            )}
+
+            {paper.structure?.sections && paper.structure.sections.length > 0 && paper.task_id && (
+                <section className="rounded-xl border bg-[#f4f5ef] p-4">
+                    <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">论文目录</h2><span className="text-xs text-muted-foreground">点击回到阅读位置</span></div>
+                    <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+                        {paper.structure.sections.map((section) => <button key={section.id} className="flex items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-white" onClick={() => navigate(`/reader/${paper.task_id}?block=${section.block_id}`)}><span>{section.title}</span><span className="text-xs text-muted-foreground">第 {section.page || "-"} 页</span></button>)}
+                    </div>
+                </section>
             )}
 
             {/* Tabs */}
@@ -294,6 +316,7 @@ const PaperDetail = () => {
                                         {f.evidence && (
                                             <p className="text-xs text-muted-foreground">证据：{f.evidence}</p>
                                         )}
+                                        {f.evidence_refs?.map((ref) => paper.task_id && <button key={ref.block_id} className="mt-1 inline-flex items-center text-xs text-primary hover:underline" onClick={() => navigate(`/reader/${paper.task_id}?block=${ref.block_id}`)}>查看第 {ref.page} 页原文</button>)}
                                     </div>
                                 </div>
                             </CardContent>

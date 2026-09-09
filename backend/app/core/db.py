@@ -39,6 +39,7 @@ def init_db():
     from ..models import (
         agent,  # noqa: F401
         knowledge,  # noqa: F401
+        reading,  # noqa: F401
         task,  # noqa: F401
         user,  # noqa: F401
     )

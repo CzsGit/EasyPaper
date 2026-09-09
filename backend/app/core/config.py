@@ -4,7 +4,7 @@ import logging
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -12,8 +12,19 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 
+class CodexConfig(BaseModel):
+    executable: str = "codex"
+    # Empty uses the installed CLI's default; never reuse an API vendor's model.
+    model: str = ""
+    reasoning_effort: Literal["low", "medium", "high"] = "low"
+    timeout_seconds: float = Field(180, ge=1, le=1800)
+    max_concurrent: int = Field(2, ge=1, le=16)
+
+
 class LLMConfig(BaseModel):
-    api_key: str = Field(..., alias="api_key")
+    provider: Literal["api", "codex"] = "api"
+    codex: CodexConfig = Field(default_factory=CodexConfig)
+    api_key: str = Field("", alias="api_key")
     base_url: str = Field("https://api.zhizengzeng.com/v1", alias="base_url")
     model: str = Field("gemini-2.5-flash", alias="model")
     judge_model: str = Field("gemini-2.5-flash", alias="judge_model")
@@ -87,7 +98,7 @@ def validate_security(config: AppConfig, app_env: str) -> None:
             raise RuntimeError(f"Refusing to start in production: {message}")
         logger.warning("SECURITY WARNING: %s", message)
 
-    if not config.llm.api_key or config.llm.api_key == "YOUR_API_KEY":
+    if config.llm.provider == "api" and (not config.llm.api_key or config.llm.api_key == "YOUR_API_KEY"):
         logger.warning("LLM api_key is not configured. LLM features will fail.")
 
 
@@ -124,6 +135,8 @@ def get_config() -> AppConfig:
             raise FileNotFoundError("Config file not found in config/config.yaml or backend/config/config.yaml")
 
     raw = _load_yaml(config_path)
+    if provider := os.getenv("EASYPAPER_AI_PROVIDER"):
+        raw.setdefault("llm", {})["provider"] = provider
     config = AppConfig(**raw)
 
     # Validate critical settings at startup (fail-fast in production).

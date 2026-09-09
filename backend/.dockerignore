@@ -5,4 +5,10 @@ tmp
 data
 logs
 config/config.yaml
+config/*.local.yaml
+config/*.secret.yaml
+.env
+.env.*
+.codex
+.codez
 .git

@@ -9,6 +9,9 @@ import logging
 import os
 import tempfile
 
+from ..core.config import LLMConfig
+from .pdf2zh_codex import PDFTranslationAbort, pdf2zh_backend
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,6 +26,7 @@ class PDFTranslator:
         lang_in: str = "en",
         lang_out: str = "zh",
         thread: int = 4,
+        llm_config: LLMConfig | None = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url
@@ -30,11 +34,13 @@ class PDFTranslator:
         self.lang_in = lang_in
         self.lang_out = lang_out
         self.thread = thread
+        self.llm_config = llm_config or LLMConfig(api_key=api_key, base_url=base_url, model=model)
 
         # 设置环境变量供 pdf2zh 使用
-        os.environ["OPENAILIKED_BASE_URL"] = base_url
-        os.environ["OPENAILIKED_API_KEY"] = api_key
-        os.environ["OPENAILIKED_MODEL"] = model
+        if self.llm_config.provider == "api":
+            os.environ["OPENAILIKED_BASE_URL"] = base_url
+            os.environ["OPENAILIKED_API_KEY"] = api_key
+            os.environ["OPENAILIKED_MODEL"] = model
 
     def translate_pdf(
         self,
@@ -64,14 +70,11 @@ class PDFTranslator:
             logger.info(f"开始翻译 PDF: {input_path}")
 
             # 调用 pdf2zh 翻译
-            results = translate(
-                files=[input_path],
-                lang_in=self.lang_in,
-                lang_out=self.lang_out,
-                service="openailiked",  # 使用自定义 OpenAI 兼容 API
-                thread=self.thread,
-                output=output_dir,
-            )
+            with pdf2zh_backend(self.llm_config) as backend:
+                results = translate(
+                    files=[input_path], lang_in=self.lang_in, lang_out=self.lang_out,
+                    thread=self.thread, output=output_dir, **backend,
+                )
 
             if results and len(results) > 0:
                 file_mono, file_dual = results[0]
@@ -81,7 +84,7 @@ class PDFTranslator:
             logger.warning("翻译返回空结果")
             return None, None
 
-        except Exception as e:
+        except (Exception, PDFTranslationAbort) as e:
             logger.error(f"PDF 翻译失败: {e}")
             return None, None
 
@@ -108,18 +111,16 @@ class PDFTranslator:
             logger.info("开始翻译 PDF 流")
 
             # 调用 pdf2zh 流式翻译
-            stream_mono, stream_dual = translate_stream(
-                stream=pdf_bytes,
-                lang_in=self.lang_in,
-                lang_out=self.lang_out,
-                service="openailiked",
-                thread=self.thread,
-            )
+            with pdf2zh_backend(self.llm_config) as backend:
+                stream_mono, stream_dual = translate_stream(
+                    stream=pdf_bytes, lang_in=self.lang_in, lang_out=self.lang_out,
+                    thread=self.thread, **backend,
+                )
 
             logger.info("PDF 流翻译完成")
             return stream_mono, stream_dual
 
-        except Exception as e:
+        except (Exception, PDFTranslationAbort) as e:
             logger.error(f"PDF 流翻译失败: {e}")
             return None, None
 
@@ -130,4 +131,5 @@ def create_translator_from_config(config) -> PDFTranslator:
         api_key=config.llm.api_key,
         base_url=config.llm.base_url,
         model=config.llm.model,
+        llm_config=config.llm,
     )

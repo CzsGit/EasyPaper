@@ -14,7 +14,9 @@ from string import Template
 
 from ..core.config import AppConfig
 from ..models.task import TaskResult, TaskStatus
+from .ai_client import AIClient
 from .highlighter import HighlightService
+from .pdf2zh_codex import PDFTranslationAbort, pdf2zh_backend
 from .task_manager import TaskManager
 
 logger = logging.getLogger(__name__)
@@ -35,9 +37,10 @@ class DocumentProcessingError(RuntimeError):
 
 
 class DocumentProcessor:
-    def __init__(self, config: AppConfig, task_manager: TaskManager) -> None:
+    def __init__(self, config: AppConfig, task_manager: TaskManager, ai_client: AIClient | None = None) -> None:
         self.config = config
         self.task_manager = task_manager
+        self.ai = ai_client or AIClient(config.llm)
         self._configure_pdf2zh_env()
 
     async def process(
@@ -60,6 +63,7 @@ class DocumentProcessor:
                 filename,
                 task_id,
                 mode,
+                asyncio.get_running_loop(),
             )
 
             pdf_bytes, output_filename, dual_pdf_bytes = result
@@ -72,6 +76,7 @@ class DocumentProcessor:
                         api_key=self.config.llm.api_key,
                         model=self.config.llm.model,
                         base_url=self.config.llm.base_url,
+                        ai_client=self.ai,
                     )
                     async with highlight_service:
                         pdf_bytes, stats, highlight_sentences = await highlight_service.highlight_pdf_with_metadata(
@@ -127,6 +132,7 @@ class DocumentProcessor:
         filename: str,
         task_id: str,
         mode: str = "translate",
+        ai_loop=None,
     ) -> tuple[bytes, str, bytes | None]:
         """调用 pdf2zh 进行翻译或简化"""
 
@@ -158,17 +164,13 @@ class DocumentProcessor:
 
             try:
                 # 调用 pdf2zh
-                results = translate(
-                    files=[str(input_path)],
-                    lang_in="en",
-                    lang_out=lang_out,
-                    service="openailiked",
-                    thread=4,
-                    output=temp_dir,
-                    model=model,
-                    prompt=SIMPLIFY_PROMPT if mode == "simplify" else None,
-                    ignore_cache=mode == "simplify",
-                )
+                with pdf2zh_backend(self.config.llm, self.ai, ai_loop) as backend:
+                    results = translate(
+                        files=[str(input_path)], lang_in="en", lang_out=lang_out,
+                        thread=4, output=temp_dir, model=model,
+                        prompt=SIMPLIFY_PROMPT if mode == "simplify" else None,
+                        ignore_cache=mode == "simplify", **backend,
+                    )
 
                 if not results or len(results) == 0:
                     raise DocumentProcessingError("pdf2zh 返回空结果")
@@ -200,6 +202,8 @@ class DocumentProcessor:
 
                 raise DocumentProcessingError("pdf2zh 输出文件不存在")
 
+            except PDFTranslationAbort as exc:
+                raise DocumentProcessingError(str(exc)) from None
             except Exception as e:
                 logger.exception(f"pdf2zh 处理失败: {e}")
                 if isinstance(e, DocumentProcessingError):
@@ -213,6 +217,8 @@ class DocumentProcessor:
         per-task variation to guard against — keeping the env stable lets multiple
         translations run concurrently (bounded by processing.max_concurrent).
         """
+        if self.config.llm.provider != "api":
+            return
         os.environ["OPENAILIKED_BASE_URL"] = self.config.llm.base_url
         os.environ["OPENAILIKED_API_KEY"] = self.config.llm.api_key
         os.environ["OPENAILIKED_MODEL"] = self.config.llm.model

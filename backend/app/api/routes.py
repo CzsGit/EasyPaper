@@ -30,12 +30,23 @@ class UploadUrlRequest(BaseModel):
     highlight: bool = False
 
 
-def create_router(task_manager: TaskManager, processor: DocumentProcessor) -> APIRouter:
+def create_router(task_manager: TaskManager, processor: DocumentProcessor, reading_service=None) -> APIRouter:
     router = APIRouter(prefix="/api", tags=["documents"])
     cfg = get_config()
     _max_bytes = cfg.processing.max_upload_mb * 1024 * 1024
     _semaphore = asyncio.Semaphore(cfg.processing.max_concurrent)
     limiter = Limiter(key_func=get_remote_address)
+    running: dict[str, asyncio.Task] = {}
+
+    def launch(task, file_bytes):
+        async def process():
+            async with _semaphore:
+                current = task_manager.get_task(task.task_id)
+                if current and current.status != TaskStatus.CANCELLED:
+                    await processor.process(task.task_id, file_bytes, task.filename, mode=task.mode, highlight=task.highlight)
+        run = create_tracked_task(process())
+        running[task.task_id] = run
+        run.add_done_callback(lambda _: running.pop(task.task_id, None))
 
     @router.post("/upload")
     @limiter.limit("10/minute")
@@ -71,11 +82,7 @@ def create_router(task_manager: TaskManager, processor: DocumentProcessor) -> AP
         # Update task with original path
         task_manager.update_original_path(task.task_id, str(original_path))
 
-        async def _process_with_limit() -> None:
-            async with _semaphore:
-                await processor.process(task.task_id, file_bytes, task.filename, mode=mode, highlight=highlight)
-
-        create_tracked_task(_process_with_limit())
+        launch(task, file_bytes)
 
         return {"task_id": task.task_id}
 
@@ -124,19 +131,14 @@ def create_router(task_manager: TaskManager, processor: DocumentProcessor) -> AP
 
         task_manager.update_original_path(task.task_id, str(original_path))
 
-        async def _process_with_limit() -> None:
-            async with _semaphore:
-                await processor.process(
-                    task.task_id, file_bytes, task.filename, mode=body.mode, highlight=body.highlight
-                )
-
-        create_tracked_task(_process_with_limit())
+        launch(task, file_bytes)
 
         return {"task_id": task.task_id}
 
     @router.get("/tasks")
     async def list_tasks(user: User = Depends(get_current_user)) -> list[dict[str, Any]]:
         tasks = task_manager.list_tasks(user_id=user.id)
+        reading = task_manager.reading_overview(user.id)
         return [
             {
                 "task_id": t.task_id,
@@ -147,6 +149,8 @@ def create_router(task_manager: TaskManager, processor: DocumentProcessor) -> AP
                 "message": t.message,
                 "mode": t.mode,
                 "highlight": t.highlight,
+                "reading": reading.get(t.task_id),
+                "can_read": bool(t.original_pdf_path and Path(t.original_pdf_path).is_file()),
                 "highlight_status": t.highlight_status,
                 "has_dual_pdf": bool(t.result_dual_pdf_path and Path(t.result_dual_pdf_path).exists()),
             }
@@ -219,6 +223,29 @@ def create_router(task_manager: TaskManager, processor: DocumentProcessor) -> AP
         task_manager.delete_task(task_id)
         return {"status": "deleted"}
 
+    @router.post("/tasks/{task_id}/cancel")
+    async def cancel_task(task_id: str, user: User = Depends(get_current_user)):
+        task = task_manager.get_task(task_id)
+        if not task or task.user_id != user.id:
+            raise HTTPException(404, "任务不存在")
+        if task.status == TaskStatus.COMPLETED:
+            raise HTTPException(409, "PDF 已生成，无需取消。")
+        task_manager.update_progress(task_id, TaskStatus.CANCELLED, task.percent, "已取消 PDF 生成，原文仍可阅读")
+        return {"status": "cancelled"}
+
+    @router.post("/tasks/{task_id}/retry")
+    async def retry_task(task_id: str, user: User = Depends(get_current_user)):
+        task = task_manager.get_task(task_id)
+        if not task or task.user_id != user.id:
+            raise HTTPException(404, "任务不存在")
+        if task_id in running or task.status not in {TaskStatus.ERROR, TaskStatus.CANCELLED}:
+            raise HTTPException(409, "当前处理尚未结束，请稍后重试。")
+        if not task.original_pdf_path or not Path(task.original_pdf_path).is_file():
+            raise HTTPException(404, "原始文件不存在，请重新导入。")
+        task_manager.requeue(task_id)
+        launch(task, Path(task.original_pdf_path).read_bytes())
+        return {"task_id": task_id, "status": "pending"}
+
     @router.post("/summary/{task_id}")
     @limiter.limit("5/minute")
     async def generate_summary(
@@ -231,8 +258,15 @@ def create_router(task_manager: TaskManager, processor: DocumentProcessor) -> AP
             raise HTTPException(status_code=404, detail="任务不存在")
         if task.user_id != user.id:
             raise HTTPException(status_code=403, detail="无权访问此任务")
-        if task.status != TaskStatus.COMPLETED:
-            raise HTTPException(status_code=400, detail="任务尚未完成")
+        if task.status != TaskStatus.COMPLETED and not (reading_service is not None and task.original_pdf_path and Path(task.original_pdf_path).exists()):
+            raise HTTPException(status_code=400, detail="论文原文尚未准备好")
+
+        if reading_service is not None:
+            try:
+                return await reading_service.summary(task, await reading_service.document(task))
+            except Exception as exc:
+                logger.exception("Reading summary generation failed")
+                raise HTTPException(status_code=502, detail="摘要生成失败，请重试") from exc
 
         # Return cached summary
         if task.summary_json:
@@ -248,6 +282,7 @@ def create_router(task_manager: TaskManager, processor: DocumentProcessor) -> AP
             api_key=cfg.llm.api_key,
             model=cfg.llm.model,
             base_url=cfg.llm.base_url,
+            ai_client=processor.ai,
         )
 
         try:

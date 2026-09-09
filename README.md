@@ -142,10 +142,15 @@ Edit `backend/config/config.yaml`:
 
 ```yaml
 llm:
-  api_key: "YOUR_API_KEY"             # Required — any OpenAI-compatible API
+  provider: "api"                     # "api" or "codex"
+  api_key: "YOUR_API_KEY"             # Required only when provider=api
   base_url: "https://api.example.com/v1"
   model: "gemini-2.5-flash"           # Model for translation/simplification/extraction
   judge_model: "gemini-2.5-flash"
+  codex:
+    executable: "codex"
+    model: ""                          # Empty uses the local Codex default model
+    reasoning_effort: "low"
 
 processing:
   max_pages: 100
